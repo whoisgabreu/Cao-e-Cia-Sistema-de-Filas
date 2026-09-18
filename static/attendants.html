@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Atendentes - Banho & Tosa</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
+      <div>
+        <h1>Atendentes</h1>
+        <div class="sub">Cadastro, edição e desativação de atendentes de banho e tosa</div>
+      </div>
+    </div>
+    <div class="actions">
+      <a href="/">Fila</a>
+      <a href="/audit">Auditoria</a>
+      <a href="/ferramentas">Ferramentas</a>
+    </div>
+  </header>
+
+  <div id="gate" class="modal-overlay open">
+    <div class="modal">
+      <h2>PIN de administrador</h2>
+      <p>Informe o PIN de administrador para gerenciar atendentes.</p>
+      <input type="password" id="gate-pin" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+      <div class="err" id="gate-err"></div>
+      <div class="row">
+        <button class="cancel" id="gate-cancel">Voltar</button>
+        <button class="ok" id="gate-ok">Entrar</button>
+      </div>
+    </div>
+  </div>
+
+  <main id="main" style="display:none;">
+    <div class="form-row">
+      <h2 style="font-size:15px; margin-bottom:8px;">Cadastrar atendente</h2>
+      <div class="filters">
+        <label>Nome <input type="text" id="nome" maxlength="120" placeholder="Nome do atendente"></label>
+        <label>PIN (4 a 6 dígitos) <input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="••••"></label>
+        <button id="salvar">Cadastrar</button>
+      </div>
+      <div class="err" id="form-err" style="margin-top:8px;"></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Status</th>
+          <th>Criado em</th>
+          <th class="num">Ações</th>
+        </tr>
+      </thead>
+      <tbody id="lista">
+        <tr><td colspan="4">Carregando...</td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <script src="/static/attendants.js"></script>
+</body>
+</html>

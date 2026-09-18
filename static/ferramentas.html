@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ferramentas - Banho & Tosa</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
+      <div>
+        <h1>Ferramentas</h1>
+        <div class="sub">Limpeza e manutenção do banco local da fila</div>
+      </div>
+    </div>
+    <div class="actions">
+      <a href="/">Fila</a>
+      <a href="/attendants">Atendentes</a>
+      <a href="/audit">Auditoria</a>
+    </div>
+  </header>
+
+  <div id="gate" class="modal-overlay open">
+    <div class="modal">
+      <h2>PIN de administrador</h2>
+      <p>Informe o PIN de administrador para acessar as ferramentas.</p>
+      <input type="password" id="gate-pin" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
+      <div class="err" id="gate-err"></div>
+      <div class="row">
+        <button class="cancel" id="gate-cancel">Voltar</button>
+        <button class="ok" id="gate-ok">Entrar</button>
+      </div>
+    </div>
+  </div>
+
+  <main id="main" style="display:none;">
+    <div class="filters">
+      <button id="refresh">Atualizar contagens</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-label">Aguardando</span>
+        <span class="stat-value" id="st-aguardando">-</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Em atendimento</span>
+        <span class="stat-value" id="st-em_atendimento">-</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Concluídos</span>
+        <span class="stat-value" id="st-concluido">-</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Cancelados</span>
+        <span class="stat-value" id="st-cancelado">-</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Registros de auditoria</span>
+        <span class="stat-value" id="st-attendances">-</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Atendentes</span>
+        <span class="stat-value" id="st-attendants">-</span>
+      </div>
+    </div>
+
+    <div class="tool-row">
+      <div class="tool-card">
+        <h3>Limpar fila</h3>
+        <p>Remove os pets em atendimento e finalizados e recarrega a fila com os agendamentos ativos de hoje.</p>
+        <button class="btn-danger" id="btn-queue">Limpar fila</button>
+      </div>
+      <div class="tool-card">
+        <h3>Limpar auditoria</h3>
+        <p>Apaga os registros de auditoria (quantidade de atendimentos por atendente).</p>
+        <button class="btn-danger" id="btn-audit">Limpar auditoria</button>
+      </div>
+      <div class="tool-card">
+        <h3>Limpar tudo</h3>
+        <p>Limpa a fila e a auditoria. Atendentes são mantidos.</p>
+        <button class="btn-danger" id="btn-all">Limpar tudo</button>
+      </div>
+    </div>
+
+    <div class="err" id="msg" style="margin-top:16px;"></div>
+  </main>
+
+  <script src="/static/ferramentas.js"></script>
+</body>
+</html>

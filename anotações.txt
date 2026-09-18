@@ -1,0 +1,8 @@
+Enriquecer as informações de Auditoria.
+    Horário de Inicio do atendimento
+    Fim do atendimento
+    Nome do pet
+    nome do atendente
+    nome do tutor do pet
+
+Painel de auditoria ter visão por atendente + filtro por intervalo de dias.

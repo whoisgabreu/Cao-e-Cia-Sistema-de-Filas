@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auditoria - Banho & Tosa</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
+      <div>
+        <h1>Auditoria de Atendimentos</h1>
+        <div class="sub">Quantidade de banhos e tosas por atendente</div>
+      </div>
+    </div>
+    <div class="actions">
+      <a href="/">Fila</a>
+      <a href="/attendants">Atendentes</a>
+      <a href="/ferramentas">Ferramentas</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="filters">
+      <label>Data inicial <input type="date" id="dat-inicio"></label>
+      <label>Data final <input type="date" id="dat-fim"></label>
+      <label>Atendente
+        <select id="atendente">
+          <option value="">Todos os atendentes</option>
+        </select>
+      </label>
+      <button id="apply">Filtrar</button>
+      <button id="today">Hoje</button>
+      <button id="month">Este mês</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Atendente</th>
+          <th class="num">Atendimentos</th>
+          <th class="num">Tempo médio (min)</th>
+        </tr>
+      </thead>
+      <tbody id="resumo">
+        <tr><td colspan="3">Carregando...</td></tr>
+      </tbody>
+    </table>
+
+    <div class="toggle">
+      <a href="#" id="toggle-detail">Ver detalhamento por pet</a>
+    </div>
+
+    <div id="detail-wrap" style="display:none; margin-top:16px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Início</th>
+            <th>Fim</th>
+            <th class="num">Duração (min)</th>
+            <th>Pet</th>
+            <th>Atendente</th>
+            <th>Tutor</th>
+            <th>Serviços</th>
+          </tr>
+        </thead>
+        <tbody id="detalhe"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="/static/audit.js"></script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Banho & Tosa - Atendente</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="tablet">
+  <header>
+    <div class="brand">
+      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
+      <div>
+        <h1>Banho &amp; Tosa</h1>
+        <div class="sub" id="sync-status">Carregando...</div>
+      </div>
+    </div>
+    <div class="actions">
+      <a href="/">Painel completo</a>
+      <a href="/atendente-minimalista">Versão v2</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="counters">
+      <div class="counter c-waiting">
+        <span class="counter-value" id="c-aguardando">0</span>
+        <span class="counter-label">Aguardando</span>
+      </div>
+      <div class="counter c-doing">
+        <span class="counter-value" id="c-em_atendimento">0</span>
+        <span class="counter-label">Em andamento</span>
+      </div>
+      <div class="counter c-done">
+        <span class="counter-value" id="c-concluido">0</span>
+        <span class="counter-label">Finalizados hoje</span>
+      </div>
+    </div>
+
+    <div class="tablet-actions">
+      <button id="btn-next" class="btn-next">Iniciar próximo atendimento</button>
+      <button id="btn-finish" class="btn btn-finish-big btn-finish-full">Finalizar Atendimento</button>
+    </div>
+
+    <div class="tablet-search">
+      <input type="search" id="search" placeholder="Buscar por nome do pet, tutor ou microchip" autocomplete="off">
+    </div>
+
+    <section class="tablet-section">
+      <h2>Aguardando</h2>
+      <div id="waiting" class="waiting-list"></div>
+    </section>
+
+    <section class="tablet-section">
+      <h2>Em andamento</h2>
+      <div id="doing" class="doing-list"></div>
+    </section>
+
+    <section class="tablet-section">
+      <h2>Finalizados hoje</h2>
+      <div id="done" class="done-list"></div>
+    </section>
+  </main>
+
+  <script src="/static/atendente.js"></script>
+</body>
+</html>

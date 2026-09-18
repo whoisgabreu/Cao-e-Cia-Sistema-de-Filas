@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fila de Atendimento</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="minimal">
+  <header class="minimal-header">
+    <div class="brand">
+      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
+      <h1>Fila de Atendimento</h1>
+    </div>
+  </header>
+
+  <main class="minimal-main">
+    <div class="min-counters">
+      <div class="min-counter">
+        <span class="min-counter-value" id="c-aguardando">0</span>
+        <span class="min-counter-label">Aguardando</span>
+      </div>
+      <div class="min-counter">
+        <span class="min-counter-value" id="c-em">0</span>
+        <span class="min-counter-label">Em atendimento</span>
+      </div>
+    </div>
+
+    <section id="loading-state" class="min-loading" style="display:none;">
+      Carregando fila...
+    </section>
+
+    <section id="error-state" class="min-error" style="display:none;">
+      <div class="min-error-title">Não foi possível carregar a fila.</div>
+      <button class="min-btn-primary" id="btn-retry">TENTAR NOVAMENTE</button>
+    </section>
+
+    <section id="next-pet" class="min-next" style="display:none;">
+      <div class="min-next-label">Próximo pet</div>
+      <div class="min-next-name" id="next-name"></div>
+      <div class="min-next-meta" id="next-service"></div>
+      <div class="min-next-meta" id="next-tutor"></div>
+      <button class="min-btn-primary" id="btn-pegar">PEGAR PRÓXIMO PET</button>
+    </section>
+
+    <section id="empty-state" class="min-empty" style="display:none;">
+      <div class="min-empty-title">✓ Fila vazia</div>
+      <div class="min-empty-sub">Não há pets aguardando atendimento.</div>
+    </section>
+
+    <div id="active-note" class="min-active-note" style="display:none;">✓ Não há outros pets aguardando</div>
+    <button class="min-btn-secondary" id="btn-finalizar" style="display:none;">FINALIZAR ATENDIMENTO</button>
+
+    <div class="min-secondary">
+      <button class="min-link" id="btn-ver-fila">Ver fila</button>
+      <span class="min-finished-today" id="hist-info"></span>
+      <a class="min-link" href="/audit">Ver histórico</a>
+      <label class="min-sound-toggle">
+        <input type="checkbox" id="sound-toggle" checked>
+        <span class="min-sound-switch"></span>
+        Som
+      </label>
+    </div>
+    <div id="ver-fila-wrap" class="min-fila-wrap" style="display:none;"></div>
+  </main>
+
+  <div id="keypad-overlay" class="min-overlay">
+    <div class="min-keypad">
+      <div class="min-keypad-title" id="keypad-title">Digite seu PIN</div>
+      <div class="min-pin-dots" id="pin-dots"></div>
+      <div class="min-keypad-err" id="keypad-err"></div>
+      <div class="min-keys" id="keys"></div>
+    </div>
+  </div>
+
+  <div id="confirm-overlay" class="min-overlay">
+    <div class="min-modal">
+      <div class="min-modal-title">Finalizar atendimento</div>
+      <div class="min-modal-pet" id="cf-pet"></div>
+      <div class="min-modal-row"><span>Serviço</span><span id="cf-service"></span></div>
+      <div class="min-modal-row"><span>Início</span><span id="cf-inicio"></span></div>
+      <div class="min-modal-row"><span>Duração</span><span id="cf-duracao"></span></div>
+      <div class="min-modal-actions">
+        <button class="min-btn-ghost" id="cf-cancelar">Cancelar</button>
+        <button class="min-btn-primary" id="cf-finalizar">FINALIZAR</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="feedback-overlay" class="min-overlay">
+    <div class="min-feedback" id="feedback-box"></div>
+  </div>
+
+  <div id="arrive-toast" class="min-toast"></div>
+
+  <script src="/static/atendente-minimal.js"></script>
+</body>
+</html>
