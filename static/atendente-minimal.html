@@ -2,90 +2,120 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Fila de Atendimento</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#73B63A">
+  <title>Fila de Atendimento · Cão & Cia</title>
+  <link rel="icon" href="/static/logo-256.png">
+  <link rel="apple-touch-icon" href="/static/logo-256.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="minimal">
-  <header class="minimal-header">
-    <div class="brand">
-      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
-      <h1>Fila de Atendimento</h1>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <img src="/static/logo-256.png" alt="Cão & Cia" class="logo">
+        <div class="brand-text">
+          <span class="brand-name">Cão &amp; Cia</span>
+          <h1 class="page-title">Fila de Atendimento</h1>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <nav class="topnav" id="topnav" aria-label="Navegação"></nav>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false"></button>
+      </div>
     </div>
   </header>
 
   <main class="minimal-main">
     <div class="min-counters">
-      <div class="min-counter">
-        <span class="min-counter-value" id="c-aguardando">0</span>
-        <span class="min-counter-label">Aguardando</span>
+      <div class="stat-card amber">
+        <div class="stat-icon" data-icon="bell"></div>
+        <div>
+          <div class="stat-value" id="c-aguardando">0</div>
+          <div class="stat-label">Esperando</div>
+        </div>
       </div>
-      <div class="min-counter">
-        <span class="min-counter-value" id="c-em">0</span>
-        <span class="min-counter-label">Em atendimento</span>
+      <div class="stat-card teal">
+        <div class="stat-icon" data-icon="scissors"></div>
+        <div>
+          <div class="stat-value" id="c-em">0</div>
+          <div class="stat-label">Em banho</div>
+        </div>
       </div>
     </div>
 
-    <section id="loading-state" class="min-loading" style="display:none;">
-      Carregando fila...
+    <section id="loading-state" class="min-loading hidden">
+      <span data-icon="refresh"></span> Carregando fila...
     </section>
 
-    <section id="error-state" class="min-error" style="display:none;">
+    <section id="error-state" class="min-error hidden">
+      <div data-mascot="catSleep"></div>
       <div class="min-error-title">Não foi possível carregar a fila.</div>
-      <button class="min-btn-primary" id="btn-retry">TENTAR NOVAMENTE</button>
+      <button class="btn btn-primary btn-lg" id="btn-retry" data-icon="refresh">Tentar novamente</button>
     </section>
 
-    <section id="next-pet" class="min-next" style="display:none;">
-      <div class="min-next-label">Próximo pet</div>
-      <div class="min-next-name" id="next-name"></div>
-      <div class="min-next-meta" id="next-service"></div>
-      <div class="min-next-meta" id="next-tutor"></div>
-      <button class="min-btn-primary" id="btn-pegar">PEGAR PRÓXIMO PET</button>
+    <section id="next-pet" class="hero hidden">
+      <span class="hero-label" data-icon="bell">Próximo pet</span>
+      <div id="next-avatar"></div>
+      <div class="hero-name" id="next-name"></div>
+      <div class="hero-meta" id="next-tutor"></div>
+      <div class="chips" id="next-service"></div>
+      <button class="btn btn-primary btn-xl" id="btn-pegar" data-icon="paw">Pegar próximo pet</button>
     </section>
 
-    <section id="empty-state" class="min-empty" style="display:none;">
-      <div class="min-empty-title">✓ Fila vazia</div>
-      <div class="min-empty-sub">Não há pets aguardando atendimento.</div>
+    <section id="empty-state" class="min-empty hidden">
+      <div data-mascot="dogSleep"></div>
+      <div class="min-empty-title">Fila vazia</div>
+      <div class="min-empty-sub">Nenhum pet esperando atendimento.</div>
     </section>
 
-    <div id="active-note" class="min-active-note" style="display:none;">✓ Não há outros pets aguardando</div>
-    <button class="min-btn-secondary" id="btn-finalizar" style="display:none;">FINALIZAR ATENDIMENTO</button>
+    <div id="active-note" class="min-active-note hidden"><span data-icon="checkCircle"></span> Não há outros pets esperando</div>
+    <button class="btn btn-teal btn-xl btn-block hidden" id="btn-finalizar" data-icon="checkCircle">Finalizar atendimento</button>
 
     <div class="min-secondary">
-      <button class="min-link" id="btn-ver-fila">Ver fila</button>
-      <span class="min-finished-today" id="hist-info"></span>
-      <a class="min-link" href="/audit">Ver histórico</a>
+      <button class="min-link" id="btn-ver-fila" data-icon="list">Ver fila</button>
+      <span id="hist-info"></span>
       <label class="min-sound-toggle">
         <input type="checkbox" id="sound-toggle" checked>
         <span class="min-sound-switch"></span>
         Som
       </label>
     </div>
-    <div id="ver-fila-wrap" class="min-fila-wrap" style="display:none;"></div>
+    <div id="ver-fila-wrap" class="queue-list hidden"></div>
   </main>
 
   <div id="keypad-overlay" class="min-overlay">
-    <div class="min-keypad">
-      <div class="min-keypad-title" id="keypad-title">Digite seu PIN</div>
-      <div class="min-pin-dots" id="pin-dots"></div>
-      <div class="min-keypad-err" id="keypad-err"></div>
-      <div class="min-keys" id="keys"></div>
+    <div class="modal modal-pin">
+      <div class="modal-head">
+        <div class="modal-icon green" id="keypad-icon"></div>
+        <h2 id="keypad-title">Digite seu PIN</h2>
+        <p id="keypad-sub"></p>
+      </div>
+      <div class="pin-dots" id="pin-dots"></div>
+      <div class="modal-err" id="keypad-err"></div>
+      <div class="keypad" id="keys"></div>
+      <button class="btn btn-ghost btn-block cancel" id="keypad-cancel">Cancelar</button>
     </div>
   </div>
 
   <div id="confirm-overlay" class="min-overlay">
-    <div class="min-modal">
-      <div class="min-modal-title">Finalizar atendimento</div>
-      <div class="min-modal-pet" id="cf-pet"></div>
-      <div class="min-modal-row"><span>Serviço</span><span id="cf-service"></span></div>
-      <div class="min-modal-row"><span>Início</span><span id="cf-inicio"></span></div>
-      <div class="min-modal-row"><span>Duração</span><span id="cf-duracao"></span></div>
-      <div class="min-modal-actions">
-        <button class="min-btn-ghost" id="cf-cancelar">Cancelar</button>
-        <button class="min-btn-primary" id="cf-finalizar">FINALIZAR</button>
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-icon" data-icon="checkCircle"></div>
+        <h2>Finalizar atendimento</h2>
+      </div>
+      <div class="hero-name text-center" id="cf-pet"></div>
+      <div class="confirm-rows">
+        <div class="confirm-row"><span><span data-icon="scissors"></span>Serviço</span><span id="cf-service"></span></div>
+        <div class="confirm-row"><span><span data-icon="play"></span>Início</span><span id="cf-inicio"></span></div>
+        <div class="confirm-row"><span><span data-icon="timer"></span>Duração</span><span id="cf-duracao"></span></div>
+      </div>
+      <div class="modal-row">
+        <button class="btn btn-ghost btn-lg" id="cf-cancelar">Cancelar</button>
+        <button class="btn btn-teal btn-lg" id="cf-finalizar" data-icon="check">Finalizar</button>
       </div>
     </div>
   </div>
@@ -96,6 +126,7 @@
 
   <div id="arrive-toast" class="min-toast"></div>
 
+  <script src="/static/ui.js"></script>
   <script src="/static/atendente-minimal.js"></script>
 </body>
 </html>

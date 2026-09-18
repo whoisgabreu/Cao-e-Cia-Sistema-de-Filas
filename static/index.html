@@ -2,58 +2,112 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fila Banho & Tosa - Cão & Cia</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#73B63A">
+  <title>Fila Banho & Tosa · Cão & Cia</title>
+  <link rel="icon" href="/static/logo-256.png">
+  <link rel="apple-touch-icon" href="/static/logo-256.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
-      <div>
-        <h1>Fila Banho &amp; Tosa</h1>
-        <div class="sub" id="sync-status">Carregando...</div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <img src="/static/logo-256.png" alt="Cão & Cia" class="logo">
+        <div class="brand-text">
+          <span class="brand-name">Cão &amp; Cia</span>
+          <h1 class="page-title">Fila Banho &amp; Tosa</h1>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <span id="sync-status" class="live-pill loading"><span class="live-dot"></span><span>Carregando...</span></span>
+        <button id="sync-now" class="btn btn-ghost btn-icon" title="Sincronizar com o VetSoft" data-icon="refresh" aria-label="Sincronizar agora"></button>
+        <nav class="topnav" id="topnav" aria-label="Navegação"></nav>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false"></button>
       </div>
-    </div>
-    <div class="actions">
-      <button id="finish-now" class="btn btn-finish-big">Finalizar Atendimento</button>
-      <button id="sync-now" class="btn">Sincronizar agora</button>
-      <a href="/atendente">Tela Atendente</a>
-      <a href="/atendente-minimalista">Tela Atendente v2</a>
-      <a href="/attendants">Atendentes</a>
-      <a href="/audit">Auditoria</a>
-      <a href="/ferramentas">Ferramentas</a>
     </div>
   </header>
 
   <main>
-    <div class="board-search">
-      <input type="search" id="board-search" placeholder="Buscar pet pelo nome ou tutor..." autocomplete="off">
-      <div id="board-search-note" class="board-search-note" style="display:none;">Nenhum pet encontrado.</div>
+    <div class="board-toolbar">
+      <label class="search">
+        <span data-icon="search"></span>
+        <input type="search" id="board-search" placeholder="Buscar pet ou tutor..." autocomplete="off">
+      </label>
+      <div class="board-summary" id="board-summary"></div>
+      <div id="board-search-note" class="search-note hidden">Nenhum pet encontrado com esse nome.</div>
     </div>
-    <div class="board">
+
+    <div class="board-tabs" id="board-tabs">
+      <button class="board-tab t-aguardando" data-view="aguardando" data-icon="calendar">Agendados <span class="tab-count">0</span></button>
+      <button class="board-tab t-presente" data-view="presente" data-icon="bell">Chegaram <span class="tab-count">0</span></button>
+      <button class="board-tab t-em_atendimento" data-view="em_atendimento" data-icon="scissors">Em banho <span class="tab-count">0</span></button>
+      <button class="board-tab t-concluido" data-view="concluido" data-icon="checkCircle">Prontos <span class="tab-count">0</span></button>
+    </div>
+
+    <section class="cancel-strip hidden" id="cancel-strip">
+      <button type="button" class="cancel-head" id="cancel-toggle" aria-expanded="false">
+        <span class="sec-icon red" data-icon="ban"></span>
+        <span class="cancel-title">Cancelados hoje</span>
+        <span class="count" id="cancel-count">0</span>
+        <span class="cancel-chevron" data-icon="chevronDown"></span>
+      </button>
+      <div class="cancel-body hidden" id="cancel-body"></div>
+    </section>
+
+    <div class="board" id="board" data-view="aguardando">
       <section class="column col-aguardando">
-        <div class="col-head">Agendados <span class="count">0</span></div>
+        <div class="col-head">
+          <div class="col-icon" data-icon="calendar"></div>
+          <div class="col-titles">
+            <div class="col-title">Agendados</div>
+            <div class="col-sub">Ainda não chegaram</div>
+          </div>
+          <span class="count">0</span>
+        </div>
         <div class="cards"></div>
       </section>
       <section class="column col-presente">
-        <div class="col-head">Aguardando atendimento <span class="count">0</span></div>
+        <div class="col-head">
+          <div class="col-icon" data-icon="bell"></div>
+          <div class="col-titles">
+            <div class="col-title">Chegaram</div>
+            <div class="col-sub">Aguardando atendimento</div>
+          </div>
+          <span class="count">0</span>
+        </div>
         <div class="cards"></div>
       </section>
       <section class="column col-em_atendimento">
-        <div class="col-head">Em atendimento <span class="count">0</span></div>
+        <div class="col-head">
+          <div class="col-icon" data-icon="scissors"></div>
+          <div class="col-titles">
+            <div class="col-title">Em atendimento</div>
+            <div class="col-sub">No banho &amp; tosa</div>
+          </div>
+          <span class="count">0</span>
+        </div>
         <div class="cards"></div>
       </section>
       <section class="column col-concluido">
-        <div class="col-head">Concluídos <span class="count">0</span></div>
+        <div class="col-head">
+          <div class="col-icon" data-icon="checkCircle"></div>
+          <div class="col-titles">
+            <div class="col-title">Prontos</div>
+            <div class="col-sub">Finalizados hoje</div>
+          </div>
+          <span class="count">0</span>
+        </div>
         <div class="cards"></div>
       </section>
     </div>
+
   </main>
 
+  <script src="/static/ui.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

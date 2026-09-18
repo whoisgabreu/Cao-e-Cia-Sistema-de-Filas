@@ -2,95 +2,97 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ferramentas - Banho & Tosa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#73B63A">
+  <title>Ferramentas · Banho & Tosa</title>
+  <link rel="icon" href="/static/logo-256.png">
+  <link rel="apple-touch-icon" href="/static/logo-256.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
-      <div>
-        <h1>Ferramentas</h1>
-        <div class="sub">Limpeza e manutenção do banco local da fila</div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <img src="/static/logo-256.png" alt="Cão & Cia" class="logo">
+        <div class="brand-text">
+          <span class="brand-name">Cão &amp; Cia</span>
+          <h1 class="page-title">Ferramentas</h1>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <button id="refresh" class="btn btn-ghost btn-icon admin-only hidden" title="Atualizar contagens" data-icon="refresh" aria-label="Atualizar"></button>
+        <button id="logout" class="btn btn-ghost btn-icon admin-only hidden" title="Sair da área de administrador" data-icon="logout" aria-label="Sair"></button>
+        <nav class="topnav" id="topnav" aria-label="Navegação"></nav>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false"></button>
       </div>
-    </div>
-    <div class="actions">
-      <a href="/">Fila</a>
-      <a href="/attendants">Atendentes</a>
-      <a href="/audit">Auditoria</a>
     </div>
   </header>
 
-  <div id="gate" class="modal-overlay open">
-    <div class="modal">
-      <h2>PIN de administrador</h2>
-      <p>Informe o PIN de administrador para acessar as ferramentas.</p>
-      <input type="password" id="gate-pin" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
-      <div class="err" id="gate-err"></div>
-      <div class="row">
-        <button class="cancel" id="gate-cancel">Voltar</button>
-        <button class="ok" id="gate-ok">Entrar</button>
-      </div>
+  <main id="main" class="admin-only hidden">
+    <div class="section-head" style="margin-top:0">
+      <div class="sec-icon teal" data-icon="database"></div>
+      <h2>Banco local</h2>
     </div>
-  </div>
-
-  <main id="main" style="display:none;">
-    <div class="filters">
-      <button id="refresh">Atualizar contagens</button>
-    </div>
-
-    <div class="stats">
-      <div class="stat">
-        <span class="stat-label">Aguardando</span>
-        <span class="stat-value" id="st-aguardando">-</span>
+    <div class="stats-row stats-6">
+      <div class="stat-card slate">
+        <div class="stat-icon" data-icon="calendar"></div>
+        <div><div class="stat-value" id="st-aguardando">-</div><div class="stat-label">Agendados</div></div>
       </div>
-      <div class="stat">
-        <span class="stat-label">Em atendimento</span>
-        <span class="stat-value" id="st-em_atendimento">-</span>
+      <div class="stat-card teal">
+        <div class="stat-icon" data-icon="scissors"></div>
+        <div><div class="stat-value" id="st-em_atendimento">-</div><div class="stat-label">Em banho</div></div>
       </div>
-      <div class="stat">
-        <span class="stat-label">Concluídos</span>
-        <span class="stat-value" id="st-concluido">-</span>
+      <div class="stat-card green">
+        <div class="stat-icon" data-icon="checkCircle"></div>
+        <div><div class="stat-value" id="st-concluido">-</div><div class="stat-label">Concluídos</div></div>
       </div>
-      <div class="stat">
-        <span class="stat-label">Cancelados</span>
-        <span class="stat-value" id="st-cancelado">-</span>
+      <div class="stat-card red">
+        <div class="stat-icon" data-icon="ban"></div>
+        <div><div class="stat-value" id="st-cancelado">-</div><div class="stat-label">Cancelados</div></div>
       </div>
-      <div class="stat">
-        <span class="stat-label">Registros de auditoria</span>
-        <span class="stat-value" id="st-attendances">-</span>
+      <div class="stat-card amber">
+        <div class="stat-icon" data-icon="history"></div>
+        <div><div class="stat-value" id="st-attendances">-</div><div class="stat-label">Auditoria</div></div>
       </div>
-      <div class="stat">
-        <span class="stat-label">Atendentes</span>
-        <span class="stat-value" id="st-attendants">-</span>
+      <div class="stat-card teal">
+        <div class="stat-icon" data-icon="users"></div>
+        <div><div class="stat-value" id="st-attendants">-</div><div class="stat-label">Atendentes</div></div>
       </div>
     </div>
 
-    <div class="tool-row">
+    <div class="section-head">
+      <div class="sec-icon" style="background: var(--red)" data-icon="alert"></div>
+      <h2>Limpeza</h2>
+    </div>
+    <div class="tool-grid">
       <div class="tool-card">
+        <div class="tool-icon" data-icon="eraser"></div>
         <h3>Limpar fila</h3>
         <p>Remove os pets em atendimento e finalizados e recarrega a fila com os agendamentos ativos de hoje.</p>
-        <button class="btn-danger" id="btn-queue">Limpar fila</button>
+        <button class="btn btn-danger" id="btn-queue" data-icon="eraser">Limpar fila</button>
       </div>
       <div class="tool-card">
+        <div class="tool-icon" data-icon="history"></div>
         <h3>Limpar auditoria</h3>
         <p>Apaga os registros de auditoria (quantidade de atendimentos por atendente).</p>
-        <button class="btn-danger" id="btn-audit">Limpar auditoria</button>
+        <button class="btn btn-danger" id="btn-audit" data-icon="trash">Limpar auditoria</button>
       </div>
       <div class="tool-card">
+        <div class="tool-icon" data-icon="database"></div>
         <h3>Limpar tudo</h3>
-        <p>Limpa a fila e a auditoria. Atendentes são mantidos.</p>
-        <button class="btn-danger" id="btn-all">Limpar tudo</button>
+        <p>Limpa a fila e a auditoria. Os atendentes são mantidos.</p>
+        <button class="btn btn-danger solid" id="btn-all" data-icon="trash">Limpar tudo</button>
       </div>
     </div>
 
-    <div class="err" id="msg" style="margin-top:16px;"></div>
+    <div class="result-box" id="msg"></div>
   </main>
 
+  <script src="/static/ui.js"></script>
+  <script src="/static/admin.js"></script>
   <script src="/static/ferramentas.js"></script>
 </body>
 </html>

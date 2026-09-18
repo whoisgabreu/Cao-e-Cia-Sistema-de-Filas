@@ -105,6 +105,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     qcols = {r["name"] for r in conn.execute("PRAGMA table_info(queue_items)").fetchall()}
     if "checked_in_at" not in qcols:
         conn.execute("ALTER TABLE queue_items ADD COLUMN checked_in_at TEXT")
+    if "cancelled_at" not in qcols:
+        conn.execute("ALTER TABLE queue_items ADD COLUMN cancelled_at TEXT")
+    if "cancel_motivo" not in qcols:
+        conn.execute("ALTER TABLE queue_items ADD COLUMN cancel_motivo TEXT")
+    if "cancel_origem" not in qcols:
+        # 'local' (botão Cancelar), 'vetsoft' (cancelado/removido no VetSoft), 'sistema' (dia anterior)
+        conn.execute("ALTER TABLE queue_items ADD COLUMN cancel_origem TEXT")
     acols = {r["name"] for r in conn.execute("PRAGMA table_info(animal_cache)").fetchall()}
     if "obs_animal" not in acols:
         conn.execute("ALTER TABLE animal_cache ADD COLUMN obs_animal TEXT")
@@ -143,7 +150,7 @@ def get_queue() -> list[dict]:
         FROM queue_items q
         LEFT JOIN attendants a ON a.id = q.claimed_by
         WHERE substr(q.dat_evento, 1, 10) = date('now','localtime')
-          AND q.status IN ('aguardando', 'presente', 'em_atendimento', 'concluido')
+          AND q.status IN ('aguardando', 'presente', 'em_atendimento', 'concluido', 'cancelado')
         ORDER BY q.dat_evento ASC
         """
     ).fetchall()
@@ -270,7 +277,7 @@ def upsert_evento(ev: dict) -> str:
     vetsoft_situacao = ev.get("cod_situacao_atual")
     dat_evento = ev.get("dat_evento")
     row = conn.execute(
-        "SELECT status FROM queue_items WHERE cod_evento = ?", (cod_evento,)
+        "SELECT status, cancel_origem FROM queue_items WHERE cod_evento = ?", (cod_evento,)
     ).fetchone()
 
     services = json.dumps(ev.get("services") or [], ensure_ascii=False)
@@ -310,18 +317,23 @@ def upsert_evento(ev: dict) -> str:
         return status
 
     status = row["status"]
-    if status == STATUS_CANCELADO and not is_cancelled:
+    origem = row["cancel_origem"]
+    cancel_sql = ""
+    if status == STATUS_CANCELADO and not is_cancelled and origem != "local":
+        # VetSoft reativou (ou o evento voltou para a agenda): volta para a fila
         status = STATUS_AGUARDANDO
+        cancel_sql = ", cancelled_at=NULL, cancel_motivo=NULL, cancel_origem=NULL"
     if is_cancelled and status not in (STATUS_CONCLUIDO, STATUS_CANCELADO):
         status = STATUS_CANCELADO
+        cancel_sql = ", cancelled_at=datetime('now'), cancel_origem='vetsoft'"
 
     conn.execute(
-        """
+        f"""
         UPDATE queue_items
         SET cod_cliente=:cod_cliente, nom_cliente=:nom_cliente, cod_animal=:cod_animal,
             nom_animal=:nom_animal, services=:services, dat_evento=:dat_evento,
             dat_termino=:dat_termino, tip_transporte=:tip_transporte, obs_estetica=:obs_estetica,
-            vetsoft_situacao=:vetsoft_situacao, status=:status, updated_at=datetime('now')
+            vetsoft_situacao=:vetsoft_situacao, status=:status, updated_at=datetime('now'){cancel_sql}
         WHERE cod_evento = :cod_evento
         """,
         {**fields, "cod_evento": cod_evento, "status": status},
@@ -335,7 +347,8 @@ def mark_removed(cod_evento: int) -> None:
     conn.execute(
         """
         UPDATE queue_items
-        SET status='cancelado', vetsoft_situacao=3, updated_at=datetime('now')
+        SET status='cancelado', vetsoft_situacao=3, updated_at=datetime('now'),
+            cancelled_at=datetime('now'), cancel_origem='vetsoft'
         WHERE cod_evento = ? AND status NOT IN ('concluido', 'cancelado')
         """,
         (cod_evento,),
@@ -348,7 +361,8 @@ def mark_removed_today_missing(presentes: set[int], data: str) -> int:
     cur = conn.execute(
         """
         UPDATE queue_items
-        SET status='cancelado', vetsoft_situacao=3, updated_at=datetime('now')
+        SET status='cancelado', vetsoft_situacao=3, updated_at=datetime('now'),
+            cancelled_at=datetime('now'), cancel_origem='vetsoft'
         WHERE substr(dat_evento, 1, 10) = ?
           AND cod_evento NOT IN ({})
           AND status NOT IN ('concluido', 'cancelado')
@@ -365,13 +379,64 @@ def mark_old_days_cancelled() -> int:
     cur = conn.execute(
         """
         UPDATE queue_items
-        SET status='cancelado', vetsoft_situacao=3, updated_at=datetime('now')
+        SET status='cancelado', updated_at=datetime('now'),
+            cancelled_at=datetime('now'), cancel_origem='sistema'
         WHERE substr(dat_evento, 1, 10) < date('now','localtime')
           AND status IN ('aguardando', 'presente')
         """
     )
     conn.commit()
     return cur.rowcount
+
+
+def cancel_evento(cod_evento: int, motivo: str | None = None) -> str:
+    """Cancela localmente (aguardando/presente/em_atendimento -> cancelado).
+
+    Retorna "ok", "ja_finalizado", "ja_cancelado" ou "nao_encontrado".
+    """
+    conn = get_conn()
+    cur = conn.execute(
+        """
+        UPDATE queue_items
+        SET status='cancelado', cancelled_at=datetime('now'), cancel_motivo=?,
+            cancel_origem='local', updated_at=datetime('now')
+        WHERE cod_evento = ? AND status IN ('aguardando', 'presente', 'em_atendimento')
+        """,
+        (motivo or None, cod_evento),
+    )
+    conn.commit()
+    if cur.rowcount == 1:
+        return "ok"
+    row = conn.execute("SELECT status FROM queue_items WHERE cod_evento = ?", (cod_evento,)).fetchone()
+    if row is None:
+        return "nao_encontrado"
+    return "ja_cancelado" if row["status"] == STATUS_CANCELADO else "ja_finalizado"
+
+
+def restore_evento(cod_evento: int) -> str:
+    """Desfaz um cancelamento feito aqui (cancelado -> aguardando).
+
+    Retorna "ok", "vetsoft" (cancelado no VetSoft; não dá para restaurar daqui) ou "nao_disponivel".
+    """
+    conn = get_conn()
+    cur = conn.execute(
+        """
+        UPDATE queue_items
+        SET status='aguardando', claimed_by=NULL, claimed_at=NULL, checked_in_at=NULL,
+            cancelled_at=NULL, cancel_motivo=NULL, cancel_origem=NULL, updated_at=datetime('now')
+        WHERE cod_evento = ? AND status = 'cancelado' AND cancel_origem = 'local'
+        """,
+        (cod_evento,),
+    )
+    conn.commit()
+    if cur.rowcount == 1:
+        return "ok"
+    row = conn.execute(
+        "SELECT status, cancel_origem FROM queue_items WHERE cod_evento = ?", (cod_evento,)
+    ).fetchone()
+    if row and row["status"] == STATUS_CANCELADO:
+        return "vetsoft"
+    return "nao_disponivel"
 
 
 def checkin_evento(cod_evento: int) -> str:
@@ -748,6 +813,12 @@ def get_audit_detalhado(
         params,
     ).fetchall()
     items = rows_to_list(rows)
+    names = get_services_names()
     for it in items:
-        it["services"] = _parse_services(it.pop("services"))
+        services = _parse_services(it.pop("services"))
+        for s in services:
+            cod = s.get("cod_prod_serv")
+            if cod is not None and not s.get("nom_prod_serv"):
+                s["nom_prod_serv"] = names.get(cod, f"Serviço #{cod}")
+        it["services"] = services
     return items

@@ -2,68 +2,60 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Atendentes - Banho & Tosa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#73B63A">
+  <title>Atendentes · Banho & Tosa</title>
+  <link rel="icon" href="/static/logo-256.png">
+  <link rel="apple-touch-icon" href="/static/logo-256.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
-      <div>
-        <h1>Atendentes</h1>
-        <div class="sub">Cadastro, edição e desativação de atendentes de banho e tosa</div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <img src="/static/logo-256.png" alt="Cão & Cia" class="logo">
+        <div class="brand-text">
+          <span class="brand-name">Cão &amp; Cia</span>
+          <h1 class="page-title">Atendentes</h1>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <button id="logout" class="btn btn-ghost btn-icon admin-only hidden" title="Sair da área de administrador" data-icon="logout" aria-label="Sair"></button>
+        <nav class="topnav" id="topnav" aria-label="Navegação"></nav>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false"></button>
       </div>
-    </div>
-    <div class="actions">
-      <a href="/">Fila</a>
-      <a href="/audit">Auditoria</a>
-      <a href="/ferramentas">Ferramentas</a>
     </div>
   </header>
 
-  <div id="gate" class="modal-overlay open">
-    <div class="modal">
-      <h2>PIN de administrador</h2>
-      <p>Informe o PIN de administrador para gerenciar atendentes.</p>
-      <input type="password" id="gate-pin" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
-      <div class="err" id="gate-err"></div>
-      <div class="row">
-        <button class="cancel" id="gate-cancel">Voltar</button>
-        <button class="ok" id="gate-ok">Entrar</button>
+  <main id="main" class="admin-only hidden">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title"><span data-icon="plus"></span>Cadastrar atendente</div>
+          <div class="panel-sub">Cada atendente usa o próprio PIN para pegar e finalizar atendimentos.</div>
+        </div>
       </div>
-    </div>
-  </div>
-
-  <main id="main" style="display:none;">
-    <div class="form-row">
-      <h2 style="font-size:15px; margin-bottom:8px;">Cadastrar atendente</h2>
-      <div class="filters">
-        <label>Nome <input type="text" id="nome" maxlength="120" placeholder="Nome do atendente"></label>
-        <label>PIN (4 a 6 dígitos) <input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="••••"></label>
-        <button id="salvar">Cadastrar</button>
+      <div class="form-grid">
+        <label class="field"><span>Nome</span><input type="text" id="nome" maxlength="120" placeholder="Ex.: Ana Souza"></label>
+        <label class="field"><span>PIN (4 a 6 dígitos)</span><input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="new-password"></label>
+        <button id="salvar" class="btn btn-primary" data-icon="check">Cadastrar</button>
       </div>
-      <div class="err" id="form-err" style="margin-top:8px;"></div>
+      <div class="form-err" id="form-err"></div>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Nome</th>
-          <th>Status</th>
-          <th>Criado em</th>
-          <th class="num">Ações</th>
-        </tr>
-      </thead>
-      <tbody id="lista">
-        <tr><td colspan="4">Carregando...</td></tr>
-      </tbody>
-    </table>
+    <div class="section-head">
+      <div class="sec-icon teal" data-icon="users"></div>
+      <h2>Equipe</h2>
+      <span class="count" id="n-att">0</span>
+    </div>
+    <div id="lista" class="person-grid"></div>
   </main>
 
+  <script src="/static/ui.js"></script>
+  <script src="/static/admin.js"></script>
   <script src="/static/attendants.js"></script>
 </body>
 </html>

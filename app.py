@@ -4,13 +4,14 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import auth
 import config
 import db
+import export_xlsx
 import sync
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -51,6 +52,10 @@ class AttendantUpdate(BaseModel):
 
 class PinAction(BaseModel):
     pin: str = Field(min_length=4, max_length=6, pattern=r"^\d+$")
+
+
+class CancelAction(BaseModel):
+    motivo: str | None = Field(default=None, max_length=200)
 
 
 def require_admin(x_admin_pin: str = Header(default="")) -> None:
@@ -160,7 +165,7 @@ def api_reactivate_attendant(attendant_id: int):
 def api_claim(cod_evento: int, payload: PinAction):
     attendant = auth.authenticate_attendant(payload.pin)
     if not attendant:
-        raise HTTPException(401, "PIN inválido")
+        raise HTTPException(401, "PIN incorreto.")
     result = db.claim_evento(cod_evento, attendant["id"])
     if result == "ja_em_atendimento":
         raise HTTPException(409, "Você já está em um atendimento. Finalize-o antes de pegar outro.")
@@ -177,11 +182,34 @@ def api_checkin(cod_evento: int):
     return {"data": {"cod_evento": cod_evento, "status": "presente"}}
 
 
+@app.post("/api/queue/{cod_evento}/cancel")
+def api_cancel(cod_evento: int, payload: CancelAction | None = None):
+    motivo = (payload.motivo or "").strip() if payload else ""
+    result = db.cancel_evento(cod_evento, motivo or None)
+    if result == "nao_encontrado":
+        raise HTTPException(404, "Agendamento não encontrado")
+    if result == "ja_cancelado":
+        raise HTTPException(409, "Este atendimento já está cancelado.")
+    if result == "ja_finalizado":
+        raise HTTPException(409, "Atendimento já finalizado; não dá para cancelar.")
+    return {"data": {"cod_evento": cod_evento, "status": "cancelado"}}
+
+
+@app.post("/api/queue/{cod_evento}/restore")
+def api_restore(cod_evento: int):
+    result = db.restore_evento(cod_evento)
+    if result == "vetsoft":
+        raise HTTPException(409, "Este agendamento foi cancelado no VetSoft. Reative por lá que ele volta para a fila.")
+    if result == "nao_disponivel":
+        raise HTTPException(409, "Este atendimento não está cancelado.")
+    return {"data": {"cod_evento": cod_evento, "status": "aguardando"}}
+
+
 @app.post("/api/queue/{cod_evento}/start")
 def api_start(cod_evento: int, payload: PinAction):
     attendant = auth.authenticate_attendant(payload.pin)
     if not attendant:
-        raise HTTPException(401, "PIN inválido")
+        raise HTTPException(401, "PIN incorreto.")
     result = db.start_evento(cod_evento, attendant["id"])
     if result == "ja_em_atendimento":
         raise HTTPException(409, "Você já está em um atendimento. Finalize-o antes de iniciar outro.")
@@ -201,6 +229,7 @@ def api_next(payload: PinAction):
     if result == "fila_vazia":
         raise HTTPException(409, "Fila vazia.")
     _, item = result
+    animal = db.get_animals_ident().get(item.get("cod_animal")) or {}
     return {
         "data": {
             "cod_evento": item["cod_evento"],
@@ -210,6 +239,9 @@ def api_next(payload: PinAction):
             "services": [s.get("nom_prod_serv") for s in item["services"]],
             "claimed_at": item["claimed_at"],
             "attendant": attendant["nome"],
+            "obs_estetica": item.get("obs_estetica"),
+            "obs_animal": animal.get("obs_animal"),
+            "num_identificacao": animal.get("num_identificacao"),
         }
     }
 
@@ -221,7 +253,7 @@ def api_finish_prepare(payload: PinAction):
         raise HTTPException(401, "PIN incorreto.")
     item = db.finish_prepare(attendant["id"])
     if item is None:
-        raise HTTPException(403, "Este PIN não pode finalizar este atendimento.")
+        raise HTTPException(409, "Você não está com nenhum pet em atendimento. Só quem pegou o pet pode finalizar.")
     return {
         "data": {
             "cod_evento": item["cod_evento"],
@@ -238,10 +270,10 @@ def api_finish_prepare(payload: PinAction):
 def api_finish(payload: PinAction):
     attendant = auth.authenticate_attendant(payload.pin)
     if not attendant:
-        raise HTTPException(401, "PIN inválido")
+        raise HTTPException(401, "PIN incorreto.")
     item = db.checkout_by_attendant(attendant["id"])
     if item is None:
-        raise HTTPException(409, "Você não possui atendimento em andamento")
+        raise HTTPException(409, "Você não está com nenhum pet em atendimento. Só quem pegou o pet pode finalizar.")
     return {
         "data": {
             "cod_evento": item["cod_evento"],
@@ -256,10 +288,10 @@ def api_finish(payload: PinAction):
 def api_checkout(cod_evento: int, payload: PinAction):
     attendant = auth.authenticate_attendant(payload.pin)
     if not attendant:
-        raise HTTPException(401, "PIN inválido")
+        raise HTTPException(401, "PIN incorreto.")
     item = db.checkout_evento(cod_evento, attendant["id"])
     if item is None:
-        raise HTTPException(409, "Atendimento não está em atendimento para este atendente")
+        raise HTTPException(409, "Este pet está com outro atendente. Só quem pegou o pet pode finalizar.")
     return {"data": {"cod_evento": cod_evento, "status": "concluido", "attendant": attendant["nome"]}}
 
 
@@ -282,6 +314,20 @@ def api_audit(
     if detalhado:
         return {"data": db.get_audit_detalhado(dat_inicio, dat_fim, cod_atendente)}
     return {"data": db.get_audit(dat_inicio, dat_fim, cod_atendente)}
+
+
+@app.get("/api/audit/export.xlsx", include_in_schema=True)
+def api_audit_export(
+    dat_inicio: str | None = None,
+    dat_fim: str | None = None,
+    cod_atendente: int | None = None,
+):
+    content, filename = export_xlsx.build_audit_workbook(dat_inicio, dat_fim, cod_atendente)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ----------------------------------------------------------------------

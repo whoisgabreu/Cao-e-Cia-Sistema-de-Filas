@@ -1,244 +1,238 @@
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
+/* Painel da fila (Kanban) — usa helpers de /static/ui.js */
+/* Visão da recepção: marca chegada e cancela; pegar/finalizar ficam nas telas do atendente. */
+const { api, icon, escapeHtml, avatar, toast, confirmModal, elapsedMin, fmtElapsed, fmtLocalTime, setLive, titleCase, serviceChips, infoChips, notes } = UI;
 
-async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = body.detail || body.message || `Erro ${res.status}`;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
-  }
-  return body.data;
-}
-
-const statusLabel = {
-  aguardando: "Aguardando",
-  em_atendimento: "Em atendimento",
-  concluido: "Concluído",
-  cancelado: "Cancelado",
+const emptyMeta = {
+  aguardando: { mascot: "dogSleep", title: "Nenhum agendamento", sub: "Todos os pets de hoje já chegaram." },
+  presente: { mascot: "cat", title: "Ninguém esperando", sub: "Quando um pet chegar, marque \"Chegou\"." },
+  em_atendimento: { mascot: "dog", title: "Nenhum banho agora", sub: "Pegue o próximo pet da fila." },
+  concluido: { mascot: "catSleep", title: "Nada finalizado ainda", sub: "Os pets prontos aparecem aqui." },
 };
-
-const transportLabel = {
-  L: "Buscar e entregar",
-  B: "Buscar",
-  E: "Tutor leva e entrega",
-  C: "Tutor leva e busca",
-  D: "Atendimento domicílio",
-  S: "Entregar",
-};
-
-function fmtTime(dt) {
-  if (!dt) return "";
-  return dt.slice(11, 16);
-}
-
-function pinModal({ title, subtitle, onOk }) {
-  return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "modal-overlay open";
-    overlay.innerHTML = `
-      <div class="modal">
-        <h2>${title}</h2>
-        <p>${subtitle}</p>
-        <input type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••">
-        <div class="err"></div>
-        <div class="row">
-          <button class="cancel">Cancelar</button>
-          <button class="ok">Confirmar</button>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
-    const input = overlay.querySelector("input");
-    const errEl = overlay.querySelector(".err");
-    const close = (value) => {
-      overlay.remove();
-      resolve(value);
-    };
-    input.focus();
-    const submit = async () => {
-      const pin = input.value.trim();
-      if (pin.length < 4) {
-        errEl.textContent = "PIN deve ter 4 a 6 dígitos";
-        return;
-      }
-      try {
-        const result = await onOk(pin);
-        close(result);
-      } catch (e) {
-        errEl.textContent = e.message;
-        input.value = "";
-        input.focus();
-      }
-    };
-    overlay.querySelector(".ok").onclick = submit;
-    overlay.querySelector(".cancel").onclick = () => close(null);
-    input.onkeydown = (e) => { if (e.key === "Enter") submit(); };
-  });
-}
 
 function cardHTML(item) {
-  const services = (item.services || [])
-    .map((s) => escapeHtml(s.nom_prod_serv || `#${s.cod_prod_serv}`))
-    .join(" · ");
-  const transport = item.tip_transporte ? transportLabel[item.tip_transporte] : "";
+  const petName = titleCase(item.nom_animal) || "Pet";
+  const chips = [];
+  if (item.status === "em_atendimento" && item.claimed_at) {
+    chips.push(`<span class="chip time">${icon("play")}<span>Início ${fmtLocalTime(item.claimed_at)}</span></span>`);
+    chips.push(`<span class="chip elapsed">${icon("timer")}<span class="elapsed-live" data-since="${escapeHtml(item.claimed_at)}">${fmtElapsed(elapsedMin(item.claimed_at))}</span></span>`);
+  }
+  if (item.status === "concluido" && item.finished_at) {
+    chips.push(`<span class="chip time">${icon("checkCircle")}<span>Pronto ${fmtLocalTime(item.finished_at)}</span></span>`);
+  }
+
   let actions = "";
   if (item.status === "aguardando") {
-    actions = `<button class="btn btn-checkin" data-action="checkin" data-event="${item.cod_evento}" data-pet="${item.nom_animal}">Chegou</button>`;
-  } else if (item.status === "presente") {
-    actions = `<button class="btn btn-claim" data-action="claim" data-event="${item.cod_evento}" data-pet="${item.nom_animal}">Pegar</button>`;
+    actions = `<button class="btn btn-amber" data-action="checkin" data-event="${item.cod_evento}">${icon("bell")}Chegou</button>
+      <button class="btn btn-ghost btn-icon btn-cancel" data-action="cancel" data-event="${item.cod_evento}" title="Cancelar atendimento" aria-label="Cancelar atendimento">${icon("x")}</button>`;
+  } else if (item.status === "presente" || item.status === "em_atendimento") {
+    actions = `<button class="btn btn-ghost btn-cancel-text" data-action="cancel" data-event="${item.cod_evento}">${icon("x")}Cancelar</button>`;
   }
-  const obsParts = [];
-  if (item.obs_estetica) obsParts.push(`<div class="obs">${escapeHtml(item.obs_estetica)}</div>`);
-  if (item.obs_animal) obsParts.push(`<div class="obs animal">${escapeHtml(item.obs_animal)}</div>`);
-  const obs = obsParts.join("");
+
   const attendant = item.attendant_nome
-    ? `<div class="attendant">${escapeHtml(item.attendant_nome)}</div>`
+    ? `<div class="card-attendant">${avatar(item.attendant_nome, "person")}<span>${escapeHtml(item.attendant_nome)}</span></div>`
     : "";
-  const statusLabel = { aguardando: "Aguardando", presente: "Chegou", em_atendimento: "Em atendimento", concluido: "Concluído" };
-  const statusText = statusLabel[item.status] || item.status;
-  const time = `<div class="time">${fmtTime(item.dat_evento)}${transport ? ` · ${transport}` : ""}</div>`;
+  const badge = item.status === "em_atendimento"
+    ? `<span class="status-pill em_atendimento"><span class="dot"></span>Em banho</span>`
+    : "";
 
   return `
-    <div class="card ${item.status}">
+    <article class="card ${item.status}">
       <div class="card-top">
-        <div>
-          <div class="pet">${escapeHtml(item.nom_animal || "Pet")}</div>
-          <div class="meta">${escapeHtml(item.nom_cliente || "")}</div>
+        ${avatar(item.nom_animal)}
+        <div class="card-names">
+          <div class="pet-name" title="${escapeHtml(item.nom_animal || "")}">${escapeHtml(petName)}</div>
+          <div class="tutor-name" title="${escapeHtml(item.nom_cliente || "")}">${icon("user")}<span>${escapeHtml(titleCase(item.nom_cliente))}</span></div>
         </div>
-        <span class="status ${item.status}"><span class="dot"></span>${statusText}</span>
+        ${badge}
       </div>
-      ${services ? `<div class="services">${services}</div>` : ""}
-      ${time}
-      ${obs}
+      <div class="chips">${serviceChips(item)}${infoChips(item)}${chips.join("")}</div>
+      ${notes(item)}
       ${attendant}
-      ${actions ? `<div class="actions">${actions}</div>` : ""}
-    </div>`;
+      ${actions ? `<div class="card-actions">${actions}</div>` : ""}
+    </article>`;
 }
 
-function escapeHtml(text) {
-  if (text == null) return "";
-  return String(text)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+const cancelOrigin = {
+  local: { label: "Cancelado aqui", cls: "local" },
+  vetsoft: { label: "Cancelado no VetSoft", cls: "vetsoft" },
+  sistema: { label: "Dia anterior", cls: "sistema" },
+};
+
+function cancelledCard(item) {
+  const origin = cancelOrigin[item.cancel_origem] || cancelOrigin.vetsoft;
+  const when = item.cancelled_at ? fmtLocalTime(item.cancelled_at) : "";
+  return `
+    <article class="card cancelado cancel-card">
+      <div class="card-top">
+        ${avatar(item.nom_animal)}
+        <div class="card-names">
+          <div class="pet-name">${escapeHtml(titleCase(item.nom_animal) || "Pet")}</div>
+          <div class="tutor-name">${icon("user")}<span>${escapeHtml(titleCase(item.nom_cliente))}</span></div>
+        </div>
+      </div>
+      <div class="chips">
+        ${infoChips(item)}
+        <span class="chip origin ${origin.cls}">${icon("ban")}<span>${origin.label}${when ? ` · ${when}` : ""}</span></span>
+      </div>
+      ${item.cancel_motivo ? `<div class="note">${icon("info")}<span><b>Motivo:</b> ${escapeHtml(item.cancel_motivo)}</span></div>` : ""}
+      ${item.cancel_origem === "local"
+        ? `<div class="card-actions"><button class="btn btn-soft" data-action="restore" data-event="${item.cod_evento}">${icon("undo")}Restaurar para a fila</button></div>`
+        : `<div class="cancel-hint">${icon("info")}<span>Para voltar à fila, reative o agendamento no VetSoft.</span></div>`}
+    </article>`;
+}
+
+function emptyHTML(status) {
+  const m = emptyMeta[status];
+  return `<div class="empty">${UI.mascot(m.mascot)}<div class="empty-title">${m.title}</div><div class="empty-sub">${m.sub}</div></div>`;
 }
 
 let lastQueue = [];
 let searchQuery = "";
 
+function matches(item, q) {
+  if (!q) return true;
+  return `${item.nom_animal || ""} ${item.nom_cliente || ""}`.toLowerCase().includes(q);
+}
+
 function render(queue) {
   lastQueue = queue;
-  const buckets = { aguardando: [], presente: [], em_atendimento: [], concluido: [] };
   const q = searchQuery.toLowerCase();
+  const buckets = { aguardando: [], presente: [], em_atendimento: [], concluido: [] };
+  const totals = { aguardando: 0, presente: 0, em_atendimento: 0, concluido: 0 };
+  const cancelled = [];
+
   queue.forEach((item) => {
-    if (q) {
-      const hay = `${item.nom_animal || ""} ${item.nom_cliente || ""}`.toLowerCase();
-      if (!hay.includes(q)) return;
-    }
-    if (buckets[item.status]) buckets[item.status].push(item);
+    if (item.status === "cancelado") { if (matches(item, q)) cancelled.push(item); return; }
+    if (!buckets[item.status]) return;
+    totals[item.status]++;
+    if (matches(item, q)) buckets[item.status].push(item);
   });
-  const anyMatch = queue.some((item) => {
-    if (!q) return true;
-    return `${item.nom_animal || ""} ${item.nom_cliente || ""}`.toLowerCase().includes(q);
-  });
-  if (q && !anyMatch) {
-    $("#board-search-note").style.display = "block";
-  } else {
-    $("#board-search-note").style.display = "none";
-  }
+
+  const strip = $("#cancel-strip");
+  strip.classList.toggle("hidden", cancelled.length === 0);
+  $("#cancel-count").textContent = cancelled.length;
+  $("#cancel-body").innerHTML = cancelled
+    .sort((a, b) => (b.cancelled_at || "").localeCompare(a.cancelled_at || ""))
+    .map(cancelledCard).join("");
+
+  const anyMatch = queue.some((item) => matches(item, q));
+  $("#board-search-note").classList.toggle("hidden", !(q && !anyMatch));
+
   Object.entries(buckets).forEach(([status, items]) => {
-    const container = $(`.col-${status} .cards`);
-    const count = $(`.col-${status} .count`);
-    count.textContent = items.length;
-    container.innerHTML = items.length
-      ? items.map(cardHTML).join("")
-      : `<div class="empty">Nenhum pet aqui</div>`;
+    $(`.col-${status} .cards`).innerHTML = items.length ? items.map(cardHTML).join("") : emptyHTML(status);
+    $(`.col-${status} .count`).textContent = q ? `${items.length}/${totals[status]}` : totals[status];
+    const tab = $(`.board-tab[data-view="${status}"] .tab-count`);
+    if (tab) tab.textContent = totals[status];
   });
+
+  $("#board-summary").innerHTML = `
+    <span class="summary-chip"><span class="dot" style="background:var(--st-presente)"></span><b>${totals.presente}</b> esperando</span>
+    <span class="summary-chip"><span class="dot" style="background:var(--st-em_atendimento)"></span><b>${totals.em_atendimento}</b> em banho</span>
+    <span class="summary-chip"><span class="dot" style="background:var(--st-concluido)"></span><b>${totals.concluido}</b> prontos hoje</span>`;
+
   bindActions();
 }
 
 function bindActions() {
   $$("[data-action]").forEach((btn) => {
     btn.onclick = () => {
-      const { action, event, pet } = btn.dataset;
-      if (action === "claim") {
-        pinModal({
-          title: "Pegar atendimento",
-          subtitle: `Informe seu PIN para pegar ${pet}.`,
-          onOk: (pin) => api(`/api/queue/${event}/claim`, {
-            method: "POST", body: JSON.stringify({ pin }),
-          }),
-        }).then(() => loadQueue());
-      } else if (action === "checkin") {
-        api(`/api/queue/${event}/checkin`, {
-          method: "POST", body: "{}",
-        })
-          .then(() => toast(`${pet} marcado como presente.`))
-          .catch((e) => toast(e.message))
+      const { action, event } = btn.dataset;
+      const item = lastQueue.find((i) => i.cod_evento === Number(event));
+      if (!item) { toast("Pet não encontrado. Atualizando...", "error"); loadQueue(); return; }
+      const pet = titleCase(item.nom_animal) || "Pet";
+
+      if (action === "checkin") {
+        btn.disabled = true;
+        api(`/api/queue/${event}/checkin`, { method: "POST", body: "{}" })
+          .then(() => toast(`${pet} chegou e entrou na fila.`, "success"))
+          .catch((e) => toast(e.message, "error"))
+          .then(() => loadQueue());
+      } else if (action === "cancel") {
+        confirmModal({
+          title: `Cancelar ${pet}?`,
+          message: item.status === "em_atendimento"
+            ? "O atendimento em andamento será cancelado e o atendente fica livre. Dá para restaurar depois em \"Cancelados hoje\"."
+            : "O pet sai da fila de hoje. Dá para restaurar depois em \"Cancelados hoje\".",
+          confirmLabel: "Cancelar atendimento",
+          cancelLabel: "Voltar",
+          danger: true,
+          iconName: "ban",
+          input: { label: "Motivo (opcional)", placeholder: "Ex.: tutor desmarcou, pet passou mal..." },
+        }).then((res) => {
+          if (!res) return;
+          api(`/api/queue/${event}/cancel`, { method: "POST", body: JSON.stringify({ motivo: res.value || null }) })
+            .then(() => toast(`${pet} cancelado.`, "info"))
+            .catch((e) => toast(e.message, "error"))
+            .then(() => loadQueue());
+        });
+      } else if (action === "restore") {
+        btn.disabled = true;
+        api(`/api/queue/${event}/restore`, { method: "POST", body: "{}" })
+          .then(() => toast(`${pet} voltou para a fila (Agendados).`, "success"))
+          .catch((e) => toast(e.message, "error"))
           .then(() => loadQueue());
       }
     };
   });
 }
 
-function toast(message) {
-  let el = $("#toast");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "toast";
-    el.className = "toast";
-    document.body.appendChild(el);
-  }
-  el.textContent = message;
-  el.classList.add("show");
-  clearTimeout(el._timer);
-  el._timer = setTimeout(() => el.classList.remove("show"), 4000);
+function tickElapsed() {
+  $$(".elapsed-live").forEach((el) => {
+    el.textContent = fmtElapsed(elapsedMin(el.dataset.since));
+  });
 }
-
-let lastSync = null;
 
 async function loadQueue() {
   try {
     const data = await api("/api/queue");
     render(data);
-    lastSync = new Date();
-    $("#sync-status").textContent = `Última atualização: ${lastSync.toLocaleTimeString("pt-BR")}`;
+    setLive("ok", `Atualizado ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`);
   } catch (e) {
-    $("#sync-status").textContent = `Erro ao carregar fila: ${e.message}`;
+    setLive("error", `Erro: ${e.message}`);
   }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  const board = $("#board");
+  const savedView = localStorage.getItem("board_view") || "aguardando";
+  board.dataset.view = savedView;
+  $$(".board-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.view === savedView);
+    tab.addEventListener("click", () => {
+      board.dataset.view = tab.dataset.view;
+      localStorage.setItem("board_view", tab.dataset.view);
+      $$(".board-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    });
+  });
+
+  $("#cancel-toggle").onclick = () => {
+    const open = $("#cancel-body").classList.toggle("hidden");
+    $("#cancel-toggle").setAttribute("aria-expanded", String(!open));
+    $("#cancel-strip").classList.toggle("open", !open);
+  };
+
   $("#board-search").addEventListener("input", () => {
     searchQuery = $("#board-search").value.trim();
     render(lastQueue);
   });
-  $("#finish-now").onclick = () => {
-    pinModal({
-      title: "Finalizar Atendimento",
-      subtitle: "Informe seu PIN para finalizar o atendimento em andamento.",
-      onOk: (pin) => api("/api/queue/finish", {
-        method: "POST", body: JSON.stringify({ pin }),
-      }),
-    }).then((result) => {
-      if (result) {
-        toast(`Atendimento de ${result.pet} finalizado por ${result.attendant}`);
-      }
-      loadQueue();
-    });
-  };
+
   $("#sync-now").onclick = async () => {
-    $("#sync-status").textContent = "Sincronizando...";
+    const btn = $("#sync-now");
+    btn.classList.add("loading");
+    setLive("loading", "Sincronizando...");
     try {
       const r = await api("/api/sync", { method: "POST", body: "{}" });
-      $("#sync-status").textContent = `Sincronizado: ${r.total} evento(s) (${r.removidos} removidos)`;
-      loadQueue();
+      toast(`Sincronizado: ${r.total} agendamento(s) hoje.`, "success");
+      await loadQueue();
     } catch (e) {
-      $("#sync-status").textContent = `Erro: ${e.message}`;
+      setLive("error", `Erro: ${e.message}`);
+      toast(e.message, "error");
+    } finally {
+      btn.classList.remove("loading");
     }
   };
+
   loadQueue();
   setInterval(loadQueue, 10000);
+  setInterval(tickElapsed, 30000);
 });

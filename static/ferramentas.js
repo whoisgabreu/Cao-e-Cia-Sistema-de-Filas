@@ -1,46 +1,6 @@
-const $ = (sel) => document.querySelector(sel);
-
-const adminPin = {
-  value: sessionStorage.getItem("admin_pin") || "",
-  save(pin) {
-    this.value = pin;
-    sessionStorage.setItem("admin_pin", pin);
-  },
-  clear() {
-    this.value = "";
-    sessionStorage.removeItem("admin_pin");
-  },
-};
-
-async function api(path, options = {}) {
-  const headers = { "Content-Type": "application/json" };
-  if (adminPin.value) headers["X-Admin-Pin"] = adminPin.value;
-  const res = await fetch(path, { headers, ...options });
-  const body = await res.json().catch(() => ({}));
-  if (res.status === 401) {
-    adminPin.clear();
-    showGate();
-    throw new Error(body.detail || "Sessão expirada. Informe o PIN novamente.");
-  }
-  if (!res.ok) {
-    const msg = body.detail || body.message || `Erro ${res.status}`;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
-  }
-  return body.data;
-}
-
-function showGate() {
-  $("#main").style.display = "none";
-  $("#gate").classList.add("open");
-  $("#gate-err").textContent = "";
-  setTimeout(() => $("#gate-pin").focus(), 50);
-}
-
-function hideGate() {
-  $("#gate").classList.remove("open");
-  $("#main").style.display = "block";
-  refresh();
-}
+/* Ferramentas de manutenção — usa /static/ui.js e /static/admin.js */
+const { icon, escapeHtml, toast, confirmModal } = UI;
+const api = Admin.api;
 
 function renderStatus(data) {
   const q = data.queue;
@@ -52,59 +12,61 @@ function renderStatus(data) {
   $("#st-attendants").textContent = data.attendants;
 }
 
+function showMsg(text, isError = false) {
+  const box = $("#msg");
+  box.className = `result-box show ${isError ? "error" : ""}`;
+  box.innerHTML = `${icon(isError ? "alert" : "checkCircle")}<span>${escapeHtml(text)}</span>`;
+}
+
 async function refresh() {
+  const btn = $("#refresh");
+  btn.classList.add("loading");
   try {
     renderStatus(await api("/api/debug/status"));
-    $("#msg").textContent = "";
   } catch (e) {
-    $("#msg").textContent = e.message;
+    showMsg(e.message, true);
+  } finally {
+    btn.classList.remove("loading");
   }
 }
 
-async function doClear(path, confirmText) {
-  if (!confirm(confirmText)) return;
-  $("#msg").textContent = "Executando...";
+function describe(data) {
+  const parts = [];
+  if (data.limpos != null) parts.push(`${data.limpos} registro(s) removido(s)`);
+  if (data.fila_limpa != null) parts.push(`fila: ${data.fila_limpa} removido(s)`);
+  if (data.auditoria_limpa != null) parts.push(`auditoria: ${data.auditoria_limpa} removido(s)`);
+  if (data.sync && data.sync.total != null) parts.push(`sincronizado: ${data.sync.total} agendamento(s) hoje`);
+  return parts.length ? parts.join(" · ") : JSON.stringify(data);
+}
+
+async function doClear(path, title, message, btn) {
+  const ok = await confirmModal({ title, message, confirmLabel: "Sim, limpar", danger: true, iconName: "trash" });
+  if (!ok) return;
+  btn.disabled = true;
+  showMsg("Executando...");
   try {
     const data = await api(path, { method: "POST", body: "{}" });
-    $("#msg").textContent = "Concluído. Limpos: " + JSON.stringify(data);
+    showMsg(`Concluído. ${describe(data)}`);
+    toast("Limpeza concluída.", "success");
     refresh();
   } catch (e) {
-    $("#msg").textContent = e.message;
+    showMsg(e.message, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  $("#gate-ok").onclick = async () => {
-    const pin = $("#gate-pin").value.trim();
-    if (pin.length < 4) { $("#gate-err").textContent = "PIN deve ter 4 a 6 dígitos"; return; }
-    try {
-      adminPin.save(pin);
-      await api("/api/admin/check", { method: "POST", body: "{}" });
-      $("#gate-pin").value = "";
-      hideGate();
-    } catch (e) {
-      $("#gate-err").textContent = e.message;
-      $("#gate-pin").value = "";
-      $("#gate-pin").focus();
-    }
-  };
-  $("#gate-pin").onkeydown = (e) => { if (e.key === "Enter") $("#gate-ok").click(); };
-  $("#gate-cancel").onclick = () => { window.location.href = "/"; };
-
   $("#refresh").onclick = refresh;
-  $("#btn-queue").onclick = () =>
-    doClear("/api/debug/clear-queue",
-      "Limpar a fila? Pets em atendimento e finalizados serão removidos; a fila será recarregada com os agendamentos ativos de hoje.");
-  $("#btn-audit").onclick = () =>
-    doClear("/api/debug/clear-audit",
-      "Apagar todos os registros de auditoria? Esta ação não pode ser desfeita.");
-  $("#btn-all").onclick = () =>
-    doClear("/api/debug/clear-all",
-      "Limpar fila e auditoria? Atendentes serão mantidos. Esta ação não pode ser desfeita.");
+  $("#btn-queue").onclick = (e) =>
+    doClear("/api/debug/clear-queue", "Limpar a fila?",
+      "Pets em atendimento e finalizados serão removidos; a fila será recarregada com os agendamentos ativos de hoje.", e.currentTarget);
+  $("#btn-audit").onclick = (e) =>
+    doClear("/api/debug/clear-audit", "Apagar a auditoria?",
+      "Todos os registros de auditoria serão apagados. Esta ação não pode ser desfeita.", e.currentTarget);
+  $("#btn-all").onclick = (e) =>
+    doClear("/api/debug/clear-all", "Limpar tudo?",
+      "Fila e auditoria serão limpas. Atendentes serão mantidos. Esta ação não pode ser desfeita.", e.currentTarget);
 
-  if (adminPin.value) {
-    api("/api/debug/status").then(() => hideGate()).catch(() => showGate());
-  } else {
-    showGate();
-  }
+  Admin.init(refresh);
 });

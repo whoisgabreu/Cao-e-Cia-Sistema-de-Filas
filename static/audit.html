@@ -2,71 +2,111 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Auditoria - Banho & Tosa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#73B63A">
+  <title>Auditoria · Banho & Tosa</title>
+  <link rel="icon" href="/static/logo-256.png">
+  <link rel="apple-touch-icon" href="/static/logo-256.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <header>
-    <div class="brand">
-      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
-      <div>
-        <h1>Auditoria de Atendimentos</h1>
-        <div class="sub">Quantidade de banhos e tosas por atendente</div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <img src="/static/logo-256.png" alt="Cão & Cia" class="logo">
+        <div class="brand-text">
+          <span class="brand-name">Cão &amp; Cia</span>
+          <h1 class="page-title">Auditoria</h1>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <nav class="topnav" id="topnav" aria-label="Navegação"></nav>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false"></button>
       </div>
-    </div>
-    <div class="actions">
-      <a href="/">Fila</a>
-      <a href="/attendants">Atendentes</a>
-      <a href="/ferramentas">Ferramentas</a>
     </div>
   </header>
 
   <main>
-    <div class="filters">
-      <label>Data inicial <input type="date" id="dat-inicio"></label>
-      <label>Data final <input type="date" id="dat-fim"></label>
-      <label>Atendente
-        <select id="atendente">
-          <option value="">Todos os atendentes</option>
-        </select>
-      </label>
-      <button id="apply">Filtrar</button>
-      <button id="today">Hoje</button>
-      <button id="month">Este mês</button>
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title"><span data-icon="filter"></span>Período</div>
+          <div class="panel-sub">Atendimentos finalizados por atendente</div>
+        </div>
+      </div>
+      <div class="filters-grid">
+        <label class="field"><span>Data inicial</span><input type="date" id="dat-inicio"></label>
+        <label class="field"><span>Data final</span><input type="date" id="dat-fim"></label>
+        <label class="field field-att"><span>Atendente</span>
+          <select id="atendente">
+            <option value="">Todos os atendentes</option>
+          </select>
+        </label>
+        <button id="apply" class="btn btn-teal" data-icon="search">Filtrar</button>
+      </div>
+      <div class="filters-foot">
+        <div class="quick-chips">
+          <button class="quick-chip active" id="today" data-icon="sun">Hoje</button>
+          <button class="quick-chip" id="week" data-icon="calendar">Últimos 7 dias</button>
+          <button class="quick-chip" id="month" data-icon="calendar">Este mês</button>
+        </div>
+        <a id="export" class="btn btn-primary" href="/api/audit/export.xlsx" download data-icon="sheet">Baixar planilha (Excel)</a>
+      </div>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Atendente</th>
-          <th class="num">Atendimentos</th>
-          <th class="num">Tempo médio (min)</th>
-        </tr>
-      </thead>
-      <tbody id="resumo">
-        <tr><td colspan="3">Carregando...</td></tr>
-      </tbody>
-    </table>
-
-    <div class="toggle">
-      <a href="#" id="toggle-detail">Ver detalhamento por pet</a>
+    <div class="stats-row audit-stats">
+      <div class="stat-card green">
+        <div class="stat-icon" data-icon="checkCircle"></div>
+        <div>
+          <div class="stat-value" id="st-total">0</div>
+          <div class="stat-label">Banhos finalizados</div>
+        </div>
+      </div>
+      <div class="stat-card teal">
+        <div class="stat-icon" data-icon="timer"></div>
+        <div>
+          <div class="stat-value" id="st-avg">-</div>
+          <div class="stat-label">Tempo médio por banho</div>
+        </div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-icon" data-icon="users"></div>
+        <div>
+          <div class="stat-value" id="st-att">0</div>
+          <div class="stat-label">Atendentes ativos</div>
+        </div>
+      </div>
     </div>
 
-    <div id="detail-wrap" style="display:none; margin-top:16px;">
+    <div class="section-head">
+      <div class="sec-icon teal" data-icon="trophy"></div>
+      <h2>Ranking por atendente</h2>
+      <span class="panel-sub" style="margin-left:auto">Toque em um atendente para ver os detalhes</span>
+    </div>
+    <div id="resumo" class="rank-list"></div>
+
+    <div class="section-head" style="justify-content: space-between;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="sec-icon green" data-icon="list"></div>
+        <h2>Detalhamento por pet</h2>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="toggle-detail" data-icon="chevronDown">Mostrar</button>
+    </div>
+
+    <div id="detail-wrap" class="table-wrap hidden">
       <table>
         <thead>
           <tr>
+            <th>Pet</th>
+            <th>Tutor</th>
+            <th>Atendente</th>
+            <th>Serviços</th>
             <th>Início</th>
             <th>Fim</th>
-            <th class="num">Duração (min)</th>
-            <th>Pet</th>
-            <th>Atendente</th>
-            <th>Tutor</th>
-            <th>Serviços</th>
+            <th class="num">Duração</th>
           </tr>
         </thead>
         <tbody id="detalhe"></tbody>
@@ -74,6 +114,7 @@
     </div>
   </main>
 
+  <script src="/static/ui.js"></script>
   <script src="/static/audit.js"></script>
 </body>
 </html>

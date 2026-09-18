@@ -2,69 +2,98 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Banho & Tosa - Atendente</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#73B63A">
+  <title>Tela Atendente · Banho & Tosa</title>
+  <link rel="icon" href="/static/logo-256.png">
+  <link rel="apple-touch-icon" href="/static/logo-256.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="tablet">
-  <header>
-    <div class="brand">
-      <img src="/static/logo-cao-cia.png" alt="Cão & Cia" class="logo">
-      <div>
-        <h1>Banho &amp; Tosa</h1>
-        <div class="sub" id="sync-status">Carregando...</div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <img src="/static/logo-256.png" alt="Cão & Cia" class="logo">
+        <div class="brand-text">
+          <span class="brand-name">Cão &amp; Cia</span>
+          <h1 class="page-title">Banho &amp; Tosa</h1>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <span id="sync-status" class="live-pill loading"><span class="live-dot"></span><span>Carregando...</span></span>
+        <nav class="topnav" id="topnav" aria-label="Navegação"></nav>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false"></button>
       </div>
-    </div>
-    <div class="actions">
-      <a href="/">Painel completo</a>
-      <a href="/atendente-minimalista">Versão v2</a>
     </div>
   </header>
 
   <main>
-    <div class="counters">
-      <div class="counter c-waiting">
-        <span class="counter-value" id="c-aguardando">0</span>
-        <span class="counter-label">Aguardando</span>
+    <div class="stats-row">
+      <div class="stat-card amber">
+        <div class="stat-icon" data-icon="bell"></div>
+        <div>
+          <div class="stat-value" id="c-aguardando">0</div>
+          <div class="stat-label">Esperando</div>
+        </div>
       </div>
-      <div class="counter c-doing">
-        <span class="counter-value" id="c-em_atendimento">0</span>
-        <span class="counter-label">Em andamento</span>
+      <div class="stat-card teal">
+        <div class="stat-icon" data-icon="scissors"></div>
+        <div>
+          <div class="stat-value" id="c-em_atendimento">0</div>
+          <div class="stat-label">Em banho</div>
+        </div>
       </div>
-      <div class="counter c-done">
-        <span class="counter-value" id="c-concluido">0</span>
-        <span class="counter-label">Finalizados hoje</span>
+      <div class="stat-card green">
+        <div class="stat-icon" data-icon="checkCircle"></div>
+        <div>
+          <div class="stat-value" id="c-concluido">0</div>
+          <div class="stat-label">Prontos hoje</div>
+        </div>
       </div>
     </div>
 
-    <div class="tablet-actions">
-      <button id="btn-next" class="btn-next">Iniciar próximo atendimento</button>
-      <button id="btn-finish" class="btn btn-finish-big btn-finish-full">Finalizar Atendimento</button>
+    <div class="action-row">
+      <button id="btn-next" class="btn btn-primary btn-lg" data-icon="paw">Pegar próximo pet</button>
+      <button id="btn-finish" class="btn btn-teal btn-lg" data-icon="checkCircle">Finalizar atendimento</button>
     </div>
 
-    <div class="tablet-search">
-      <input type="search" id="search" placeholder="Buscar por nome do pet, tutor ou microchip" autocomplete="off">
-    </div>
+    <label class="search">
+      <span data-icon="search"></span>
+      <input type="search" id="search" placeholder="Buscar pet, tutor ou microchip..." autocomplete="off">
+    </label>
 
-    <section class="tablet-section">
-      <h2>Aguardando</h2>
-      <div id="waiting" class="waiting-list"></div>
+    <section>
+      <div class="section-head">
+        <div class="sec-icon amber" data-icon="bell"></div>
+        <h2>Esperando</h2>
+        <span class="count" id="n-waiting">0</span>
+      </div>
+      <div id="waiting" class="list"></div>
     </section>
 
-    <section class="tablet-section">
-      <h2>Em andamento</h2>
-      <div id="doing" class="doing-list"></div>
+    <section>
+      <div class="section-head">
+        <div class="sec-icon teal" data-icon="scissors"></div>
+        <h2>Em atendimento</h2>
+        <span class="count" id="n-doing">0</span>
+      </div>
+      <div id="doing" class="list"></div>
     </section>
 
-    <section class="tablet-section">
-      <h2>Finalizados hoje</h2>
-      <div id="done" class="done-list"></div>
+    <section>
+      <div class="section-head">
+        <div class="sec-icon green" data-icon="checkCircle"></div>
+        <h2>Prontos hoje</h2>
+        <span class="count" id="n-done">0</span>
+      </div>
+      <div id="done" class="list-compact"></div>
     </section>
   </main>
 
+  <script src="/static/ui.js"></script>
   <script src="/static/atendente.js"></script>
 </body>
 </html>

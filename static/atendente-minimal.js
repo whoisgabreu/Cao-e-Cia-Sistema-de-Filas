@@ -1,7 +1,9 @@
-const $ = (sel) => document.querySelector(sel);
+/* Tela simples do atendente (tablet) — usa helpers de /static/ui.js */
+const { api, icon, escapeHtml, todayStr, avatar, fmtLocalTime, plural, titleCase, notes, infoModal } = UI;
 
 let lastQueue = [];
 let pin = "";
+let keypadBusy = false;
 let keypadMode = null; // 'pegar' | 'finalizar'
 let confirmData = null;
 let currentPin = "";
@@ -9,40 +11,8 @@ let filaOpen = false;
 let feedbackTimer = null;
 let prevPresente = null; // Set de cod_evento presentes (para notificar novas chegadas)
 let arriveTimer = null;
-
-async function api(path, options = {}) {
-  let res;
-  try {
-    res = await fetch(path, {
-      headers: { "Content-Type": "application/json" },
-      ...options,
-    });
-  } catch (e) {
-    throw new Error("Erro de conexão.");
-  }
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = typeof body.detail === "string"
-      ? body.detail
-      : res.status === 401 ? "PIN incorreto."
-      : res.status === 403 ? "Este PIN não pode finalizar este atendimento."
-      : `Erro ${res.status}`;
-    throw new Error(msg);
-  }
-  return body.data;
-}
-
-function escapeHtml(text) {
-  if (text == null) return "";
-  return String(text)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-
-function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+let nextItem = null; // próximo pet exibido no hero
+let pegarTarget = null; // cod_evento do pet que o atendente confirmou pegar
 
 function overlaysOpen() {
   return $("#keypad-overlay").classList.contains("open")
@@ -50,11 +20,11 @@ function overlaysOpen() {
     || $("#feedback-overlay").classList.contains("open");
 }
 
-function show(id) { $(id).style.display = "block"; }
-function hide(id) { $(id).style.display = "none"; }
+function show(id) { $(id).classList.remove("hidden"); }
+function hide(id) { $(id).classList.add("hidden"); }
 
-function plural(n, singular, pluralWord) {
-  return `${n} ${n === 1 ? singular : pluralWord}`;
+function sortWaiting(list) {
+  return list.sort((a, b) => (a.checked_in_at || a.dat_evento || "").localeCompare(b.checked_in_at || b.dat_evento || ""));
 }
 
 /* ------------------------------------------------------------------
@@ -62,14 +32,13 @@ function plural(n, singular, pluralWord) {
 ------------------------------------------------------------------ */
 function render(queue) {
   lastQueue = queue;
-  const waiting = queue.filter((i) => i.status === "presente")
-    .sort((a, b) => (a.checked_in_at || a.dat_evento || "").localeCompare(b.checked_in_at || b.dat_evento || ""));
+  const waiting = sortWaiting(queue.filter((i) => i.status === "presente"));
   const doing = queue.filter((i) => i.status === "em_atendimento");
   const doneToday = queue.filter((i) => i.status === "concluido" && (i.finished_at || "").slice(0, 10) === todayStr()).length;
 
   $("#c-aguardando").textContent = waiting.length;
   $("#c-em").textContent = doing.length;
-  $("#hist-info").textContent = `${doneToday} finalizados hoje`;
+  $("#hist-info").textContent = `${plural(doneToday, "finalizado", "finalizados")} hoje`;
 
   notifyArrivals(waiting);
 
@@ -80,11 +49,14 @@ function render(queue) {
   hide("#active-note");
   hide("#btn-finalizar");
 
-  if (waiting.length > 0) {
-    const next = waiting[0];
-    $("#next-name").textContent = next.nom_animal || "Pet";
-    $("#next-service").textContent = (next.services || []).map((s) => s.nom_prod_serv).join(" · ");
-    $("#next-tutor").textContent = next.nom_cliente ? `Tutor: ${next.nom_cliente}` : "";
+  nextItem = waiting[0] || null;
+  if (nextItem) {
+    const next = nextItem;
+    $("#next-avatar").innerHTML = avatar(next.nom_animal, "xl");
+    $("#next-name").textContent = titleCase(next.nom_animal) || "Pet";
+    $("#next-service").innerHTML = (next.services || [])
+      .map((s) => `<span class="chip service">${icon("scissors")}<span>${escapeHtml(titleCase(s.nom_prod_serv))}</span></span>`).join("");
+    $("#next-tutor").innerHTML = next.nom_cliente ? `${icon("user")}<span>${escapeHtml(titleCase(next.nom_cliente))}</span>` : "";
     show("#next-pet");
   }
 
@@ -100,12 +72,16 @@ function render(queue) {
 
 function renderFila(waiting) {
   $("#ver-fila-wrap").innerHTML = waiting.length
-    ? waiting.map((i) => `
-        <div class="min-fila-row">
-          <span class="min-fila-pet">${escapeHtml(i.nom_animal || "Pet")}</span>
-          <span class="min-fila-meta">${escapeHtml(i.nom_cliente || "")}</span>
+    ? waiting.map((i, idx) => `
+        <div class="queue-row">
+          <span class="queue-pos">${idx + 1}</span>
+          ${avatar(i.nom_animal, "sm")}
+          <div class="queue-text">
+            <div class="queue-pet">${escapeHtml(titleCase(i.nom_animal) || "Pet")}</div>
+            <div class="queue-meta">${escapeHtml(titleCase(i.nom_cliente))}</div>
+          </div>
         </div>`).join("")
-    : `<div class="min-fila-empty">Fila vazia.</div>`;
+    : `<div class="queue-empty">Fila vazia.</div>`;
 }
 
 function notifyArrivals(waiting) {
@@ -113,7 +89,7 @@ function notifyArrivals(waiting) {
   if (prevPresente !== null) {
     const arrivals = waiting.filter((i) => !prevPresente.has(i.cod_evento));
     if (arrivals.length) {
-      const names = arrivals.map((i) => i.nom_animal || "Pet").join(", ");
+      const names = arrivals.map((i) => titleCase(i.nom_animal) || "Pet").join(", ");
       playArrive();
       showArriveToast(names);
     }
@@ -123,7 +99,7 @@ function notifyArrivals(waiting) {
 
 function showArriveToast(names) {
   const toastEl = $("#arrive-toast");
-  toastEl.textContent = `Novo pet chegou: ${names}`;
+  toastEl.innerHTML = `${icon("bell")}<span>Novo pet chegou: <b>${escapeHtml(names)}</b></span>`;
   toastEl.classList.add("show");
   clearTimeout(arriveTimer);
   arriveTimer = setTimeout(() => toastEl.classList.remove("show"), 4000);
@@ -164,16 +140,23 @@ async function refreshQueue() {
 function buildKeypad() {
   const keys = [1, 2, 3, 4, 5, 6, 7, 8, 9, "del", 0, "ok"];
   $("#keys").innerHTML = keys.map((k) => {
-    if (k === "del") return `<button class="min-key" data-key="del">⌫</button>`;
-    if (k === "ok") return `<button class="min-key min-key-ok" data-key="ok">OK</button>`;
-    return `<button class="min-key" data-key="${k}">${k}</button>`;
+    if (k === "del") return `<button type="button" class="key del" data-key="del" aria-label="Apagar">${icon("backspace")}</button>`;
+    if (k === "ok") return `<button type="button" class="key ok" data-key="ok" aria-label="Confirmar">${icon("check")}</button>`;
+    return `<button type="button" class="key" data-key="${k}">${k}</button>`;
   }).join("");
 }
 
 function openKeypad(mode) {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   keypadMode = mode;
+  keypadBusy = false;
   pin = "";
-  $("#keypad-title").textContent = mode === "pegar" ? "PEGAR PRÓXIMO PET" : "FINALIZAR ATENDIMENTO";
+  if (mode === "pegar") pegarTarget = nextItem ? nextItem.cod_evento : null;
+  const pegar = mode === "pegar";
+  $("#keypad-title").textContent = pegar ? "Pegar próximo pet" : "Finalizar atendimento";
+  $("#keypad-sub").textContent = "Digite seu PIN";
+  $("#keypad-icon").className = `modal-icon ${pegar ? "green" : "teal"}`;
+  $("#keypad-icon").innerHTML = icon(pegar ? "paw" : "checkCircle");
   $("#keypad-err").textContent = "";
   updateDots();
   $("#keypad-overlay").classList.add("open");
@@ -181,26 +164,50 @@ function openKeypad(mode) {
 
 function closeKeypad() {
   $("#keypad-overlay").classList.remove("open");
+  $("#keypad-overlay .modal").classList.remove("busy");
   keypadMode = null;
+  keypadBusy = false;
   pin = "";
 }
 
+// 4 bolinhas no mínimo (PIN de 4 dígitos fica "completo"), cresce até 6.
 function updateDots() {
-  $("#pin-dots").innerHTML = Array.from({ length: 6 }, (_, i) =>
-    `<span class="min-dot ${i < pin.length ? "filled" : ""}"></span>`).join("");
+  const shown = Math.max(4, Math.min(6, pin.length));
+  $("#pin-dots").innerHTML = Array.from({ length: shown }, (_, i) =>
+    `<span class="pin-dot ${i < pin.length ? "filled" : ""}"></span>`).join("");
+  $("#keys .key.ok").classList.toggle("ready", pin.length >= 4);
+}
+
+function setKeypadBusy(on) {
+  keypadBusy = on;
+  $("#keypad-overlay .modal").classList.toggle("busy", on);
 }
 
 function submitPin() {
-  if (pin.length < 4) return;
+  if (keypadBusy) return;
+  if (pin.length < 4) { setKeypadError("PIN deve ter 4 a 6 dígitos"); return; }
+  setKeypadBusy(true);
   if (keypadMode === "pegar") {
     api("/api/queue/next", { method: "POST", body: JSON.stringify({ pin }) })
       .then((data) => {
         closeKeypad();
         playSuccess();
-        showFeedback(`Atendimento de ${data.pet} iniciado`);
         loadQueue();
+        if (data.cod_evento !== pegarTarget && (data.obs_estetica || data.obs_animal)) {
+          // A fila é atômica: outro atendente pegou o pet confirmado e veio o seguinte
+          infoModal({
+            title: `Você pegou ${titleCase(data.pet)}`,
+            subtitle: "Outro atendente pegou o pet anterior. Leia as observações deste antes de começar.",
+            bodyHTML: notes(data),
+            okLabel: "Entendi, começar o banho",
+            tone: "amber",
+            iconName: "alert",
+          });
+        } else {
+          showFeedback(`Atendimento de ${titleCase(data.pet)} iniciado`);
+        }
       })
-      .catch((e) => setKeypadError(e.message));
+      .catch((e) => { setKeypadBusy(false); setKeypadError(e.message); });
   } else if (keypadMode === "finalizar") {
     api("/api/queue/finish/prepare", { method: "POST", body: JSON.stringify({ pin }) })
       .then((data) => {
@@ -209,7 +216,7 @@ function submitPin() {
         closeKeypad();
         openConfirm(data);
       })
-      .catch((e) => setKeypadError(e.message));
+      .catch((e) => { setKeypadBusy(false); setKeypadError(e.message); });
   }
 }
 
@@ -217,6 +224,10 @@ function setKeypadError(msg) {
   $("#keypad-err").textContent = msg;
   pin = "";
   updateDots();
+  const dots = $("#pin-dots");
+  dots.classList.remove("shake");
+  void dots.offsetWidth;
+  dots.classList.add("shake");
 }
 
 /* ------------------------------------------------------------------
@@ -258,8 +269,10 @@ document.addEventListener("mousedown", primeSounds, { once: true });
 document.addEventListener("keydown", primeSounds, { once: true });
 
 document.addEventListener("click", (e) => {
-  const keyBtn = e.target.closest(".min-key");
+  const keyBtn = e.target.closest(".key");
   if (!keyBtn || !keypadMode) return;
+  keyBtn.blur();
+  if (keypadBusy) return;
   primeSounds();
   const key = keyBtn.dataset.key;
   if (key === "del") {
@@ -269,18 +282,31 @@ document.addEventListener("click", (e) => {
     submitPin();
   } else if (pin.length < 6) {
     pin += key;
+    $("#keypad-err").textContent = "";
     updateDots();
-    if (pin.length === 6) submitPin();
   }
+});
+
+// Teclado físico (quando houver)
+document.addEventListener("keydown", (e) => {
+  if (!keypadMode) return;
+  if (e.key === "Escape") { closeKeypad(); return; }
+  if (keypadBusy) return;
+  if (e.key.length === 1 && e.key >= "0" && e.key <= "9") {
+    e.preventDefault();
+    if (pin.length < 6) { $("#keypad-err").textContent = ""; pin += e.key; updateDots(); }
+  } else if (e.key === "Backspace") { e.preventDefault(); pin = pin.slice(0, -1); updateDots(); }
+  else if (e.key === "Enter") { e.preventDefault(); submitPin(); }
+  else if (e.key === " ") { e.preventDefault(); }
 });
 
 /* ------------------------------------------------------------------
    Confirmação de finalização
 ------------------------------------------------------------------ */
 function openConfirm(data) {
-  $("#cf-pet").textContent = data.pet || "Pet";
-  $("#cf-service").textContent = (data.services || []).join(" · ") || "Sem serviço";
-  $("#cf-inicio").textContent = data.claimed_at ? data.claimed_at.slice(0, 16) : "";
+  $("#cf-pet").textContent = titleCase(data.pet) || "Pet";
+  $("#cf-service").textContent = (data.services || []).map(titleCase).join(" · ") || "Sem serviço";
+  $("#cf-inicio").textContent = data.claimed_at ? fmtLocalTime(data.claimed_at) : "";
   $("#cf-duracao").textContent = data.duracao_min != null
     ? `${Math.max(0, Math.round(data.duracao_min))} minutos`
     : "";
@@ -298,7 +324,7 @@ async function doFinalize() {
     const data = await api("/api/queue/finish", { method: "POST", body: JSON.stringify({ pin: currentPin }) });
     closeConfirm();
     playSuccess();
-    showFeedback(`Atendimento de ${data.pet} finalizado`);
+    showFeedback(`${titleCase(data.pet)} está pronto!`);
     loadQueue();
   } catch (e) {
     closeConfirm();
@@ -313,12 +339,12 @@ async function doFinalize() {
 function showFeedback(message, isError = false) {
   clearTimeout(feedbackTimer);
   const box = $("#feedback-box");
-  box.textContent = message;
+  box.innerHTML = `${icon(isError ? "alert" : "checkCircle")}<span>${escapeHtml(message)}</span>`;
   box.classList.toggle("error", isError);
   $("#feedback-overlay").classList.add("open");
   feedbackTimer = setTimeout(() => {
     $("#feedback-overlay").classList.remove("open");
-  }, 1600);
+  }, 1800);
 }
 
 /* ------------------------------------------------------------------
@@ -334,9 +360,25 @@ document.addEventListener("DOMContentLoaded", () => {
     primeSounds();
   });
 
-  $("#btn-pegar").onclick = () => openKeypad("pegar");
+  $("#btn-pegar").onclick = async () => {
+    const item = nextItem;
+    if (item && (item.obs_estetica || item.obs_animal)) {
+      const ok = await infoModal({
+        title: `Atenção: ${titleCase(item.nom_animal) || "Pet"}`,
+        subtitle: "Leia as observações antes de pegar este pet.",
+        bodyHTML: notes(item),
+        okLabel: "OK, continuar",
+        cancelLabel: "Cancelar",
+        tone: "amber",
+        iconName: "alert",
+      });
+      if (!ok) return;
+    }
+    openKeypad("pegar");
+  };
   $("#btn-finalizar").onclick = () => openKeypad("finalizar");
   $("#btn-retry").onclick = loadQueue;
+  $("#keypad-cancel").onclick = closeKeypad;
 
   $("#cf-cancelar").onclick = closeConfirm;
   $("#cf-finalizar").onclick = doFinalize;
@@ -350,9 +392,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#btn-ver-fila").onclick = () => {
     filaOpen = !filaOpen;
-    $("#ver-fila-wrap").style.display = filaOpen ? "block" : "none";
-    if (filaOpen) renderFila(lastQueue.filter((i) => i.status === "presente")
-      .sort((a, b) => (a.checked_in_at || a.dat_evento || "").localeCompare(b.checked_in_at || b.dat_evento || "")));
+    $("#ver-fila-wrap").classList.toggle("hidden", !filaOpen);
+    $("#btn-ver-fila").innerHTML = `${icon(filaOpen ? "chevronDown" : "list")}${filaOpen ? "Ocultar fila" : "Ver fila"}`;
+    if (filaOpen) renderFila(sortWaiting(lastQueue.filter((i) => i.status === "presente")));
   };
 
   loadQueue();
