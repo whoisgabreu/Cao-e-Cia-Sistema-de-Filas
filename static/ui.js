@@ -330,6 +330,11 @@
     }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      // Sessão expirada/ausente → volta para o login do papel da tela.
+      if (res.status === 401 && body.detail === "Não autorizado") {
+        window.location.href = loginForPath(location.pathname);
+        throw new Error("Sessão expirada.");
+      }
       const msg = body.detail || body.message || `Erro ${res.status}`;
       const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
       err.status = res.status;
@@ -512,24 +517,49 @@
   }
 
   /* ----------------------------------------------------------------
-     Navegação compartilhada
+     Navegação compartilhada (por papel)
   ---------------------------------------------------------------- */
   const NAV = [
-    { href: "/", label: "Fila", icon: "layout" },
-    { href: "/atendente", label: "Tela Atendente", icon: "tablet" },
-    { href: "/atendente-minimalista", label: "Tela Simples", icon: "zap" },
-    { href: "/attendants", label: "Atendentes", icon: "users" },
-    { href: "/audit", label: "Auditoria", icon: "chart" },
-    { href: "/ferramentas", label: "Ferramentas", icon: "wrench" },
+    { href: "/", label: "Fila", icon: "layout", roles: ["recepcao", "admin"] },
+    { href: "/atendente", label: "Tela Atendente", icon: "tablet", roles: ["atendente", "admin"] },
+    { href: "/atendente-minimalista", label: "Tela Simples", icon: "zap", roles: ["atendente", "admin"] },
+    { href: "/attendants", label: "Atendentes", icon: "users", roles: ["admin"] },
+    { href: "/audit", label: "Auditoria", icon: "chart", roles: ["admin"] },
+    { href: "/ferramentas", label: "Ferramentas", icon: "wrench", roles: ["admin"] },
   ];
 
-  function initNav() {
+  const LOGIN_BY_ROLE = { recepcao: "/login-recepcao", atendente: "/login-atendente", admin: "/login-admin" };
+
+  function loginForPath(path) {
+    if (path === "/" || path === "") return "/login-recepcao";
+    if (path.startsWith("/atendente")) return "/login-atendente";
+    return "/login-admin";
+  }
+
+  async function initNav() {
     const nav = $("#topnav");
     const toggle = $("#nav-toggle");
+    let role = null;
+    try {
+      role = (await api("/api/me")).role;
+    } catch (e) {
+      window.location.href = loginForPath(location.pathname);
+      return;
+    }
     if (nav) {
       const path = location.pathname.replace(/\/$/, "") || "/";
-      nav.innerHTML = NAV.map((n) =>
-        `<a href="${n.href}" class="nav-link ${n.href === path ? "active" : ""}">${icon(n.icon)}<span>${n.label}</span></a>`).join("");
+      const items = NAV.filter((n) => (n.roles || []).includes(role));
+      nav.innerHTML = items.map((n) =>
+        `<a href="${n.href}" class="nav-link ${n.href === path ? "active" : ""}">${icon(n.icon)}<span>${n.label}</span></a>`).join("")
+        + `<a href="#" class="nav-link logout" id="nav-logout">${icon("logout")}<span>Sair</span></a>`;
+      const logout = $("#nav-logout", nav);
+      if (logout) {
+        logout.onclick = async (ev) => {
+          ev.preventDefault();
+          try { await api("/api/logout", { method: "POST", body: "{}" }); } catch (e) { /* segue */ }
+          window.location.href = LOGIN_BY_ROLE[role] || "/login-recepcao";
+        };
+      }
     }
     if (toggle && nav) {
       toggle.innerHTML = icon("menu");

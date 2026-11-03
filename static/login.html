@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Acesso · Cão & Cia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="login">
+  <main class="login-wrap">
+    <div class="login-card">
+      <div class="login-brand">
+        <img src="/static/logo-256.png" alt="Cão & Cia" class="login-logo">
+        <h1 id="login-title">Acesso</h1>
+        <p class="login-sub" id="login-sub"></p>
+      </div>
+
+      <form id="login-form" novalidate>
+        <label class="field"><span>Usuário</span><input type="text" id="username" autocomplete="username" autofocus></label>
+        <label class="field" style="margin-top:14px;"><span>Senha</span><input type="password" id="password" autocomplete="current-password"></label>
+        <div class="login-err" id="login-err"></div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block">Entrar</button>
+      </form>
+
+      <nav class="login-links" aria-label="Outros acessos">
+        <a href="/login-recepcao">Recepção</a>
+        <a href="/login-atendente">Atendente</a>
+        <a href="/login-admin">Admin</a>
+      </nav>
+    </div>
+  </main>
+
+  <script src="/static/login.js"></script>
+</body>
+</html>

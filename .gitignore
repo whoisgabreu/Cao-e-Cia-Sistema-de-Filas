@@ -4,3 +4,9 @@ __pycache__/
 .env
 queue.db
 *.db-journal
+*.db-wal
+*.db-shm
+.pytest_cache/
+
+# Certificados locais (se usados)
+certs/

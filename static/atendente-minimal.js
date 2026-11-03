@@ -24,7 +24,17 @@ function show(id) { $(id).classList.remove("hidden"); }
 function hide(id) { $(id).classList.add("hidden"); }
 
 function sortWaiting(list) {
-  return list.sort((a, b) => (a.checked_in_at || a.dat_evento || "").localeCompare(b.checked_in_at || b.dat_evento || ""));
+  return list.sort((a, b) => {
+    const pa = a.is_prioridade ? 0 : 1;
+    const pb = b.is_prioridade ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    return (a.checked_in_at || a.dat_evento || "").localeCompare(b.checked_in_at || b.dat_evento || "");
+  });
+}
+
+function prioChip(item) {
+  if (!(item.is_prioridade || /prioridade/i.test(item.obs_estetica || ""))) return "";
+  return `<span class="chip prioridade">${icon("star")}<span>Prioridade</span></span>`;
 }
 
 /* ------------------------------------------------------------------
@@ -54,8 +64,8 @@ function render(queue) {
     const next = nextItem;
     $("#next-avatar").innerHTML = avatar(next.nom_animal, "xl");
     $("#next-name").textContent = titleCase(next.nom_animal) || "Pet";
-    $("#next-service").innerHTML = (next.services || [])
-      .map((s) => `<span class="chip service">${icon("scissors")}<span>${escapeHtml(titleCase(s.nom_prod_serv))}</span></span>`).join("");
+    $("#next-service").innerHTML = (prioChip(next) + (next.services || [])
+      .map((s) => `<span class="chip service">${icon("scissors")}<span>${escapeHtml(titleCase(s.nom_prod_serv))}</span></span>`).join(""));
     $("#next-tutor").innerHTML = next.nom_cliente ? `${icon("user")}<span>${escapeHtml(titleCase(next.nom_cliente))}</span>` : "";
     show("#next-pet");
   }
@@ -80,6 +90,7 @@ function renderFila(waiting) {
             <div class="queue-pet">${escapeHtml(titleCase(i.nom_animal) || "Pet")}</div>
             <div class="queue-meta">${escapeHtml(titleCase(i.nom_cliente))}</div>
           </div>
+          ${prioChip(i)}
         </div>`).join("")
     : `<div class="queue-empty">Fila vazia.</div>`;
 }

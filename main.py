@@ -1,5 +1,5 @@
 """Diagnóstico rápido da API VetSoft (login, refresh e agenda de estética de hoje)."""
-from datetime import date
+import config
 
 from vetsoft_client import VetSoftClient
 
@@ -13,7 +13,7 @@ def main() -> None:
     refreshed = client.refresh()
     print(f"Refresh OK — expires_in={refreshed.get('expires_in')}s")
 
-    today = date.today().isoformat()
+    today = config.business_today()
     eventos = client.list_estetica(dat_inicial=today, dat_final=today, incluir_cancelados=True)
     print(f"Estética hoje ({today}): {len(eventos)} evento(s)")
     for ev in eventos:

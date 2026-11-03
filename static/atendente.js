@@ -14,7 +14,7 @@ function waitingCard(item, position) {
         </div>
         <span class="status-pill presente">${icon("bell")}${position === 1 ? "Próximo" : `${position}º na fila`}</span>
       </div>
-      <div class="chips">${serviceChips(item)}${infoChips(item)}</div>
+      <div class="chips">${prioChip(item)}${serviceChips(item)}${infoChips(item)}</div>
       ${notes(item)}
       <div class="card-actions">
         <button class="btn btn-primary btn-lg" data-action="start" data-event="${item.cod_evento}">${icon("play")}Iniciar atendimento</button>
@@ -84,7 +84,17 @@ function finishModal(item) {
 }
 
 function sortWaiting(list) {
-  return list.sort((a, b) => (a.checked_in_at || a.dat_evento || "").localeCompare(b.checked_in_at || b.dat_evento || ""));
+  return list.sort((a, b) => {
+    const pa = a.is_prioridade ? 0 : 1;
+    const pb = b.is_prioridade ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    return (a.checked_in_at || a.dat_evento || "").localeCompare(b.checked_in_at || b.dat_evento || "");
+  });
+}
+
+function prioChip(item) {
+  if (!(item.is_prioridade || /prioridade/i.test(item.obs_estetica || ""))) return "";
+  return `<span class="chip prioridade">${icon("star")}<span>Prioridade</span></span>`;
 }
 
 function render(queue) {

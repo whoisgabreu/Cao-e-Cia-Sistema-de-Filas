@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS queue_items (
     checked_in_at      TEXT,
     claimed_at         TEXT,
     finished_at        TEXT,
+    is_prioridade      INTEGER NOT NULL DEFAULT 0,
+    prioridade_at      TEXT,
     updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -84,9 +86,11 @@ CREATE TABLE IF NOT EXISTS animal_cache (
 def get_conn() -> sqlite3.Connection:
     conn = getattr(_local, "conn", None)
     if conn is None:
-        conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
+        conn = sqlite3.connect(config.DB_PATH, check_same_thread=False, timeout=5)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
         _local.conn = conn
     return conn
 
@@ -112,6 +116,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "cancel_origem" not in qcols:
         # 'local' (botão Cancelar), 'vetsoft' (cancelado/removido no VetSoft), 'sistema' (dia anterior)
         conn.execute("ALTER TABLE queue_items ADD COLUMN cancel_origem TEXT")
+    if "is_prioridade" not in qcols:
+        conn.execute("ALTER TABLE queue_items ADD COLUMN is_prioridade INTEGER NOT NULL DEFAULT 0")
+    if "prioridade_at" not in qcols:
+        conn.execute("ALTER TABLE queue_items ADD COLUMN prioridade_at TEXT")
     acols = {r["name"] for r in conn.execute("PRAGMA table_info(animal_cache)").fetchall()}
     if "obs_animal" not in acols:
         conn.execute("ALTER TABLE animal_cache ADD COLUMN obs_animal TEXT")
@@ -142,17 +150,20 @@ def _with_service_names(item: dict) -> dict:
     return item
 
 
-def get_queue() -> list[dict]:
+def get_queue(today: str | None = None) -> list[dict]:
+    today = today or config.business_today()
     conn = get_conn()
     rows = conn.execute(
         """
         SELECT q.*, a.nome AS attendant_nome
         FROM queue_items q
         LEFT JOIN attendants a ON a.id = q.claimed_by
-        WHERE substr(q.dat_evento, 1, 10) = date('now','localtime')
+        WHERE substr(q.dat_evento, 1, 10) = ?
           AND q.status IN ('aguardando', 'presente', 'em_atendimento', 'concluido', 'cancelado')
-        ORDER BY q.dat_evento ASC
-        """
+        ORDER BY q.is_prioridade DESC,
+                 COALESCE(q.prioridade_at, q.checked_in_at, q.dat_evento) ASC
+        """,
+        (today,),
     ).fetchall()
     items = rows_to_list(rows)
     names = get_services_names()
@@ -373,17 +384,20 @@ def mark_removed_today_missing(presentes: set[int], data: str) -> int:
     return cur.rowcount
 
 
-def mark_old_days_cancelled() -> int:
-    """Cancela aguardando/presente de dias anteriores (mantém em andamento/concluído)."""
+def purge_old_days(today: str | None = None) -> int:
+    """Remove da fila os registros de dias anteriores (histórico fica em attendances).
+
+    Preserva `em_atendimento` (serviço em andamento na virada do dia).
+    """
+    today = today or config.business_today()
     conn = get_conn()
     cur = conn.execute(
         """
-        UPDATE queue_items
-        SET status='cancelado', updated_at=datetime('now'),
-            cancelled_at=datetime('now'), cancel_origem='sistema'
-        WHERE substr(dat_evento, 1, 10) < date('now','localtime')
-          AND status IN ('aguardando', 'presente')
-        """
+        DELETE FROM queue_items
+        WHERE substr(dat_evento, 1, 10) < ?
+          AND status <> 'em_atendimento'
+        """,
+        (today,),
     )
     conn.commit()
     return cur.rowcount
@@ -411,6 +425,48 @@ def cancel_evento(cod_evento: int, motivo: str | None = None) -> str:
     if row is None:
         return "nao_encontrado"
     return "ja_cancelado" if row["status"] == STATUS_CANCELADO else "ja_finalizado"
+
+
+def set_prioridade(cod_evento: int, ativo: bool, today: str | None = None) -> str:
+    """Marca/desmarca prioridade (só para pets aguardando/presente de hoje).
+
+    Retorna "ok", "nao_encontrado" ou "nao_disponivel".
+    """
+    today = today or config.business_today()
+    conn = get_conn()
+    row = conn.execute(
+        """
+        SELECT status FROM queue_items
+        WHERE cod_evento = ? AND substr(dat_evento, 1, 10) = ?
+        """,
+        (cod_evento, today),
+    ).fetchone()
+    if row is None:
+        return "nao_encontrado"
+    if row["status"] not in (STATUS_AGUARDANDO, STATUS_PRESENTE):
+        return "nao_disponivel"
+    if ativo:
+        conn.execute(
+            """
+            UPDATE queue_items
+            SET is_prioridade = 1,
+                prioridade_at = COALESCE(prioridade_at, datetime('now')),
+                updated_at = datetime('now')
+            WHERE cod_evento = ?
+            """,
+            (cod_evento,),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE queue_items
+            SET is_prioridade = 0, prioridade_at = NULL, updated_at = datetime('now')
+            WHERE cod_evento = ?
+            """,
+            (cod_evento,),
+        )
+    conn.commit()
+    return "ok"
 
 
 def restore_evento(cod_evento: int) -> str:
@@ -536,7 +592,8 @@ def start_next_evento(attendant_id: int) -> tuple | str:
         WHERE cod_evento = (
             SELECT cod_evento FROM queue_items
             WHERE status = 'presente'
-            ORDER BY COALESCE(checked_in_at, dat_evento) ASC
+            ORDER BY is_prioridade DESC,
+                     COALESCE(prioridade_at, checked_in_at, dat_evento) ASC
             LIMIT 1
         )
         AND NOT EXISTS (
@@ -605,7 +662,8 @@ def checkout_evento(cod_evento: int, attendant_id: int) -> dict | None:
     conn.execute(
         """
         UPDATE queue_items
-        SET status='concluido', finished_at=datetime('now'), updated_at=datetime('now')
+        SET status='concluido', finished_at=datetime('now'),
+            is_prioridade=0, prioridade_at=NULL, updated_at=datetime('now')
         WHERE cod_evento = ?
         """,
         (cod_evento,),
@@ -705,10 +763,12 @@ def count_em_atendimento(attendant_id: int) -> int:
 # ----------------------------------------------------------------------
 # Debug / Reset
 # ----------------------------------------------------------------------
-def count_queue() -> dict:
+def count_queue(today: str | None = None) -> dict:
+    today = today or config.business_today()
     conn = get_conn()
     rows = conn.execute(
-        "SELECT status, COUNT(*) AS n FROM queue_items GROUP BY status"
+        "SELECT status, COUNT(*) AS n FROM queue_items WHERE substr(dat_evento, 1, 10) = ? GROUP BY status",
+        (today,),
     ).fetchall()
     counts = {s: 0 for s in ALL_STATUS}
     for r in rows:

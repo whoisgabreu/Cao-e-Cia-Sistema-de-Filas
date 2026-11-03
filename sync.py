@@ -1,6 +1,6 @@
 import threading
-from datetime import date
 
+import config
 import db
 import vetsoft_client
 from vetsoft_client import VetSoftClient, VetSoftError
@@ -20,7 +20,7 @@ def get_client() -> VetSoftClient:
 def sync_queue() -> dict:
     """Busca agendamentos de estética de hoje no VetSoft e sincroniza a fila local."""
     client = get_client()
-    today = date.today().isoformat()
+    today = config.business_today()
     eventos = client.list_estetica(
         dat_inicial=today,
         dat_final=today,
@@ -40,9 +40,9 @@ def sync_queue() -> dict:
 
     _cache_missing_animals(client, eventos)
 
-    velhos = db.mark_old_days_cancelled()
     removidos = db.mark_removed_today_missing(presentes, today)
-    return {"total": len(eventos), "velhos_cancelados": velhos, "removidos": removidos}
+    velhos_removidos = db.purge_old_days(today)
+    return {"total": len(eventos), "velhos_removidos": velhos_removidos, "removidos": removidos}
 
 
 def _cache_missing_animals(client: VetSoftClient, eventos: list[dict]) -> None:

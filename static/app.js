@@ -12,6 +12,9 @@ const emptyMeta = {
 function cardHTML(item) {
   const petName = titleCase(item.nom_animal) || "Pet";
   const chips = [];
+  if (item.is_prioridade || /prioridade/i.test(item.obs_estetica || "")) {
+    chips.push(`<span class="chip prioridade">${icon("star")}<span>Prioridade</span></span>`);
+  }
   if (item.status === "em_atendimento" && item.claimed_at) {
     chips.push(`<span class="chip time">${icon("play")}<span>Início ${fmtLocalTime(item.claimed_at)}</span></span>`);
     chips.push(`<span class="chip elapsed">${icon("timer")}<span class="elapsed-live" data-since="${escapeHtml(item.claimed_at)}">${fmtElapsed(elapsedMin(item.claimed_at))}</span></span>`);
@@ -21,10 +24,16 @@ function cardHTML(item) {
   }
 
   let actions = "";
+  const prioBtn = item.is_prioridade
+    ? `<button class="btn btn-amber btn-sm" data-action="prioridade" data-event="${item.cod_evento}">${icon("star")}Prioridade</button>`
+    : `<button class="btn btn-ghost btn-sm" data-action="prioridade" data-event="${item.cod_evento}">${icon("star")}Prioridade</button>`;
   if (item.status === "aguardando") {
     actions = `<button class="btn btn-amber" data-action="checkin" data-event="${item.cod_evento}">${icon("bell")}Chegou</button>
+      ${prioBtn}
       <button class="btn btn-ghost btn-icon btn-cancel" data-action="cancel" data-event="${item.cod_evento}" title="Cancelar atendimento" aria-label="Cancelar atendimento">${icon("x")}</button>`;
-  } else if (item.status === "presente" || item.status === "em_atendimento") {
+  } else if (item.status === "presente") {
+    actions = `${prioBtn}<button class="btn btn-ghost btn-cancel-text" data-action="cancel" data-event="${item.cod_evento}">${icon("x")}Cancelar</button>`;
+  } else if (item.status === "em_atendimento") {
     actions = `<button class="btn btn-ghost btn-cancel-text" data-action="cancel" data-event="${item.cod_evento}">${icon("x")}Cancelar</button>`;
   }
 
@@ -165,6 +174,12 @@ function bindActions() {
             .catch((e) => toast(e.message, "error"))
             .then(() => loadQueue());
         });
+      } else if (action === "prioridade") {
+        const novo = !item.is_prioridade;
+        api(`/api/queue/${event}/prioridade`, { method: "POST", body: JSON.stringify({ ativo: novo }) })
+          .then(() => toast(novo ? `${pet} priorizado — vai para a frente da fila.` : `${pet} prioridade removida.`, novo ? "success" : "info"))
+          .catch((e) => toast(e.message, "error"))
+          .then(() => loadQueue());
       } else if (action === "restore") {
         btn.disabled = true;
         api(`/api/queue/${event}/restore`, { method: "POST", body: "{}" })
