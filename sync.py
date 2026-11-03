@@ -6,6 +6,7 @@ import vetsoft_client
 from vetsoft_client import VetSoftClient, VetSoftError
 
 _local = threading.local()
+_sync_lock = threading.Lock()
 
 
 def get_client() -> VetSoftClient:
@@ -18,6 +19,12 @@ def get_client() -> VetSoftClient:
 
 
 def sync_queue() -> dict:
+    """Serializa as sincronizações (loop de fundo + botão manual + debug)."""
+    with _sync_lock:
+        return _sync_queue_locked()
+
+
+def _sync_queue_locked() -> dict:
     """Busca agendamentos de estética de hoje no VetSoft e sincroniza a fila local."""
     client = get_client()
     today = config.business_today()
@@ -29,9 +36,14 @@ def sync_queue() -> dict:
     )
 
     presentes = set()
-    for ev in eventos:
-        presentes.add(ev["cod_evento"])
-        db.upsert_evento(ev)
+    try:
+        for ev in eventos:
+            presentes.add(ev["cod_evento"])
+            db.upsert_evento(ev, commit=False)
+        db.get_conn().commit()
+    except Exception:
+        db.get_conn().rollback()
+        raise
 
     if not db.cache_is_fresh(3600):
         catalog = {s["cod_prod_serv"]: s for s in client.list_services()}
@@ -42,7 +54,15 @@ def sync_queue() -> dict:
 
     removidos = db.mark_removed_today_missing(presentes, today)
     velhos_removidos = db.purge_old_days(today)
-    return {"total": len(eventos), "velhos_removidos": velhos_removidos, "removidos": removidos}
+    cancelados = sum(1 for ev in eventos if ev.get("cod_situacao_atual") == 3)
+    return {
+        "total": len(eventos),              # tudo que a VetSoft devolveu hoje
+        "ativos": len(eventos) - cancelados,  # não cancelados (entram/atualizam a base)
+        "cancelados_vetsoft": cancelados,   # já cancelados na origem (não entram na fila)
+        "removidos": removidos,
+        "velhos_removidos": velhos_removidos,
+        "fila": db.count_queue(today),      # snapshot do que está na base hoje
+    }
 
 
 def _cache_missing_animals(client: VetSoftClient, eventos: list[dict]) -> None:
@@ -62,12 +82,19 @@ def _cache_missing_animals(client: VetSoftClient, eventos: list[dict]) -> None:
 
 
 def sync_loop(stop_event: threading.Event, interval: int) -> None:
-    import config
-
     while not stop_event.is_set():
         try:
-            result = sync_queue()
-            print(f"[sync] {result}", flush=True)
+            r = sync_queue()
+            f = r.get("fila", {})
+            print(
+                f"[sync] VetSoft: {r['total']} retornados "
+                f"({r['ativos']} ativos + {r['cancelados_vetsoft']} cancelados na origem) "
+                f"| base hoje: {f.get('aguardando', 0)} aguardando, {f.get('presente', 0)} presente, "
+                f"{f.get('em_atendimento', 0)} em atendimento, {f.get('concluido', 0)} concluído, "
+                f"{f.get('cancelado', 0)} cancelado "
+                f"| removidos={r['removidos']} velhos_removidos={r['velhos_removidos']}",
+                flush=True,
+            )
         except (VetSoftError, Exception) as exc:  # noqa: BLE001
             print(f"[sync] erro: {exc}", flush=True)
         stop_event.wait(interval)

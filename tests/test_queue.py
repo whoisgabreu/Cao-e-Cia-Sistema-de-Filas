@@ -1,6 +1,8 @@
 """Fila: pegar próximo (ordem/prioridade), finalizar, prioridade, limpeza e contagem."""
 from datetime import date, timedelta
 
+import pytest
+
 import config
 import db
 
@@ -107,3 +109,53 @@ def test_finish_pin_de_outro_atendente_nao_finaliza(client, login_as, make_atten
     # Bia tenta finalizar o pet da Ana
     r = client.post("/api/queue/finish", json={"pin": "2222"})
     assert r.status_code == 409
+
+def test_queue_signature_detecta_mudanca(add_queue_item):
+    add_queue_item(1, status="presente", checked_in=f"{_hoje()} 09:00:00")
+    s1 = db.queue_signature()
+    db.set_prioridade(1, True)
+    s2 = db.queue_signature()
+    assert s1 != s2
+
+
+def test_checkout_idempotente_nao_duplica_auditoria(make_attendant, add_queue_item):
+    att = make_attendant("Ana", "1111")
+    add_queue_item(1, checked_in=f"{_hoje()} 09:00:00")
+    assert db.claim_evento(1, att["id"]) == "ok"
+
+    assert db.checkout_evento(1, att["id"]) is not None
+    assert db.checkout_evento(1, att["id"]) is None
+
+    n = db.get_conn().execute(
+        "SELECT COUNT(*) AS n FROM attendances WHERE cod_evento = 1"
+    ).fetchone()["n"]
+    assert n == 1
+
+
+def test_purge_old_days_remove_data_nula(add_queue_item):
+    add_queue_item(1, status="aguardando")
+    add_queue_item(2, status="em_atendimento")
+    conn = db.get_conn()
+    conn.execute("UPDATE queue_items SET dat_evento = NULL")
+    conn.commit()
+
+    assert db.purge_old_days() == 1
+    assert _q(1) is None
+    assert _q(2) is not None  # em_atendimento preservado mesmo sem data
+
+
+def test_clear_attendants_bloqueia_com_referencias(make_attendant, add_queue_item):
+    att = make_attendant("Ana", "1111")
+    add_queue_item(1, checked_in=f"{_hoje()} 09:00:00")
+    assert db.claim_evento(1, att["id"]) == "ok"
+
+    with pytest.raises(RuntimeError):
+        db.clear_attendants()
+
+    db.checkout_evento(1, att["id"])
+    with pytest.raises(RuntimeError):
+        db.clear_attendants()
+
+    db.clear_queue()
+    db.clear_attendances()
+    assert db.clear_attendants() == 1

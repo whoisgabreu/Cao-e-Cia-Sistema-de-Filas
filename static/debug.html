@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#73B63A">
-  <title>Ferramentas · Banho & Tosa</title>
+  <meta name="robots" content="noindex, nofollow">
+  <title>Debug · Banho & Tosa</title>
   <link rel="icon" href="/static/logo-256.png">
   <link rel="apple-touch-icon" href="/static/logo-256.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,11 +20,10 @@
         <img src="/static/logo-256.png" alt="Cão & Cia" class="logo">
         <div class="brand-text">
           <span class="brand-name">Cão &amp; Cia</span>
-          <h1 class="page-title">Ferramentas</h1>
+          <h1 class="page-title">Debug</h1>
         </div>
       </a>
       <div class="topbar-actions">
-        <button id="refresh" class="btn btn-ghost btn-icon" title="Atualizar contagens" data-icon="refresh" aria-label="Atualizar"></button>
         <nav class="topnav" id="topnav" aria-label="Navegação"></nav>
         <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false"></button>
       </div>
@@ -32,39 +32,9 @@
 
   <main id="main">
     <div class="section-head" style="margin-top:0">
-      <div class="sec-icon teal" data-icon="database"></div>
-      <h2>Banco local</h2>
-    </div>
-    <div class="stats-row stats-6">
-      <div class="stat-card slate">
-        <div class="stat-icon" data-icon="calendar"></div>
-        <div><div class="stat-value" id="st-aguardando">-</div><div class="stat-label">Agendados</div></div>
-      </div>
-      <div class="stat-card teal">
-        <div class="stat-icon" data-icon="scissors"></div>
-        <div><div class="stat-value" id="st-em_atendimento">-</div><div class="stat-label">Em banho</div></div>
-      </div>
-      <div class="stat-card green">
-        <div class="stat-icon" data-icon="checkCircle"></div>
-        <div><div class="stat-value" id="st-concluido">-</div><div class="stat-label">Concluídos</div></div>
-      </div>
-      <div class="stat-card red">
-        <div class="stat-icon" data-icon="ban"></div>
-        <div><div class="stat-value" id="st-cancelado">-</div><div class="stat-label">Cancelados</div></div>
-      </div>
-      <div class="stat-card amber">
-        <div class="stat-icon" data-icon="history"></div>
-        <div><div class="stat-value" id="st-attendances">-</div><div class="stat-label">Auditoria</div></div>
-      </div>
-      <div class="stat-card teal">
-        <div class="stat-icon" data-icon="users"></div>
-        <div><div class="stat-value" id="st-attendants">-</div><div class="stat-label">Atendentes</div></div>
-      </div>
-    </div>
-
-    <div class="section-head">
       <div class="sec-icon" style="background: var(--red)" data-icon="alert"></div>
       <h2>Limpeza</h2>
+      <span class="panel-sub" style="margin-left:auto">Exige a senha do administrador</span>
     </div>
     <div class="tool-grid">
       <div class="tool-card">
@@ -91,7 +61,6 @@
   </main>
 
   <script src="/static/ui.js"></script>
-  <script src="/static/admin.js"></script>
-  <script src="/static/ferramentas.js"></script>
+  <script src="/static/debug.js"></script>
 </body>
 </html>

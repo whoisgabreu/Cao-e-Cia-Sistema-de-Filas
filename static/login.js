@@ -1,4 +1,5 @@
-/* Login por papel — o papel vem da própria rota (/login-recepcao, /login-atendente, /login-admin). */
+/* Login — em "/" é único (papel descoberto pelo backend);
+   nas rotas /login-* o papel vem da URL (mantidas para reverter). */
 (function () {
   "use strict";
 
@@ -9,6 +10,7 @@
     atendente: { title: "Atendente", sub: "Acesso da equipe de banho e tosa." },
     admin: { title: "Administração", sub: "Acesso de gerência e auditoria." },
   };
+  const GENERIC = { title: "Acesso", sub: "Entre com seu usuário e senha." };
   const HOME = { recepcao: "/", atendente: "/atendente-minimalista", admin: "/audit" };
 
   function roleFromPath() {
@@ -16,7 +18,7 @@
     if (p.includes("recepcao")) return "recepcao";
     if (p.includes("atendente")) return "atendente";
     if (p.includes("admin")) return "admin";
-    return "recepcao";
+    return null; // "/" → login único
   }
 
   async function api(path, options = {}) {
@@ -34,15 +36,11 @@
   const role = roleFromPath();
 
   document.addEventListener("DOMContentLoaded", () => {
-    const meta = ROLE_TITLES[role] || ROLE_TITLES.recepcao;
+    const meta = role ? (ROLE_TITLES[role] || GENERIC) : GENERIC;
     $("#login-title").textContent = meta.title;
     $("#login-sub").textContent = meta.sub;
 
-    // Se já estiver autenticado, vai direto para a tela do papel.
-    api("/api/me").then((me) => {
-      if (me && me.role) window.location.href = HOME[me.role] || "/";
-    }).catch(() => {});
-
+    // "Já logado → home" é tratado no servidor (rota /login). Aqui só o formulário.
     $("#login-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const username = $("#username").value.trim();
@@ -50,10 +48,12 @@
       const errEl = $("#login-err");
       errEl.textContent = "";
       if (!username || !password) { errEl.textContent = "Informe usuário e senha."; return; }
+      const payload = { username, password };
+      if (role) payload.role = role;
       try {
         const data = await api("/api/login", {
           method: "POST",
-          body: JSON.stringify({ username, password, role }),
+          body: JSON.stringify(payload),
         });
         window.location.href = data.home || HOME[data.role] || "/";
       } catch (err) {

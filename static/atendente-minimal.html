@@ -28,6 +28,7 @@
         </div>
       </a>
       <div class="topbar-actions">
+        <button class="btn btn-ghost btn-icon" id="btn-refresh" title="Atualizar" data-icon="refresh" aria-label="Atualizar"></button>
         <nav class="topnav" id="topnav" aria-label="Navegação"></nav>
         <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false"></button>
       </div>
@@ -68,7 +69,7 @@
       <div class="hero-name" id="next-name"></div>
       <div class="hero-meta" id="next-tutor"></div>
       <div class="chips" id="next-service"></div>
-      <button class="btn btn-primary btn-xl" id="btn-pegar" data-icon="paw">Pegar próximo pet</button>
+      <button class="btn btn-primary btn-xl" id="btn-pegar" data-icon="paw">Atender pet</button>
     </section>
 
     <section id="empty-state" class="min-empty hidden">
@@ -78,10 +79,11 @@
     </section>
 
     <div id="active-note" class="min-active-note hidden"><span data-icon="checkCircle"></span> Não há outros pets esperando</div>
-    <button class="btn btn-teal btn-xl btn-block hidden" id="btn-finalizar" data-icon="checkCircle">Finalizar atendimento</button>
+    <button class="btn btn-teal btn-xl btn-block hidden" id="btn-finalizar" data-icon="checkCircle">Encerrar atendimento</button>
 
     <div class="min-secondary">
       <button class="min-link" id="btn-ver-fila" data-icon="list">Ver fila</button>
+      <button class="min-link" id="btn-em-atendimento" data-icon="scissors">Em atendimento</button>
       <span id="hist-info"></span>
       <label class="min-sound-toggle">
         <input type="checkbox" id="sound-toggle" checked>
@@ -110,7 +112,7 @@
     <div class="modal">
       <div class="modal-head">
         <div class="modal-icon" data-icon="checkCircle"></div>
-        <h2>Finalizar atendimento</h2>
+        <h2>Encerrar atendimento</h2>
       </div>
       <div class="hero-name text-center" id="cf-pet"></div>
       <div class="confirm-rows">

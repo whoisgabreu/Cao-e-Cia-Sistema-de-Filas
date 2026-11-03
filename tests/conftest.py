@@ -37,7 +37,10 @@ def fresh_db():
     for table in ("attendances", "queue_items", "attendants"):
         conn.execute(f"DELETE FROM {table}")
     conn.commit()
+    db._services_names_cache = None
+    db._animals_ident_cache = None
     app_module._login_fails.clear()
+    app_module._pin_fails.clear()
     yield
 
 

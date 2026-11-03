@@ -330,9 +330,9 @@
     }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      // Sessão expirada/ausente → volta para o login do papel da tela.
+      // Sessão expirada/ausente → volta para o login.
       if (res.status === 401 && body.detail === "Não autorizado") {
-        window.location.href = loginForPath(location.pathname);
+        if (location.pathname !== LOGIN_PATH) window.location.href = LOGIN_PATH;
         throw new Error("Sessão expirada.");
       }
       const msg = body.detail || body.message || `Erro ${res.status}`;
@@ -492,7 +492,8 @@
             <h2>${escapeHtml(title)}</h2>
             ${message ? `<p>${escapeHtml(message)}</p>` : ""}
           </div>
-          ${input ? `<label class="field"><span>${escapeHtml(input.label || "")}</span><input type="text" class="confirm-input" maxlength="${input.maxLength || 200}" placeholder="${escapeHtml(input.placeholder || "")}" autocomplete="off"></label>` : ""}
+          ${input ? `<label class="field"><span>${escapeHtml(input.label || "")}</span><input type="${escapeHtml(input.type || "text")}" class="confirm-input" maxlength="${input.maxLength || 200}" placeholder="${escapeHtml(input.placeholder || "")}" autocomplete="${input.type === "password" ? "current-password" : "off"}"></label>` : ""}
+          <div class="modal-err" role="alert"></div>
           <div class="modal-row">
             <button type="button" class="btn btn-ghost cancel">${escapeHtml(cancelLabel)}</button>
             <button type="button" class="btn ${danger ? "btn-danger solid" : "btn-primary"} ok">${escapeHtml(confirmLabel)}</button>
@@ -506,7 +507,20 @@
         resolve(v);
       };
       const inputEl = $(".confirm-input", overlay);
-      const ok = () => close(inputEl ? { value: inputEl.value.trim() } : true);
+      const errEl = $(".modal-err", overlay);
+      const ok = () => {
+        if (!inputEl) return close(true);
+        const value = inputEl.value.trim();
+        if (input && input.required && !value) {
+          errEl.textContent = input.requiredMessage || "Preencha este campo.";
+          inputEl.classList.remove("shake");
+          void inputEl.offsetWidth;
+          inputEl.classList.add("shake");
+          inputEl.focus();
+          return;
+        }
+        close({ value });
+      };
       const onKey = (e) => { if (e.key === "Escape") close(false); if (e.key === "Enter" && inputEl) ok(); };
       document.addEventListener("keydown", onKey);
       $(".ok", overlay).onclick = ok;
@@ -525,16 +539,9 @@
     { href: "/atendente-minimalista", label: "Tela Simples", icon: "zap", roles: ["atendente", "admin"] },
     { href: "/attendants", label: "Atendentes", icon: "users", roles: ["admin"] },
     { href: "/audit", label: "Auditoria", icon: "chart", roles: ["admin"] },
-    { href: "/ferramentas", label: "Ferramentas", icon: "wrench", roles: ["admin"] },
   ];
 
-  const LOGIN_BY_ROLE = { recepcao: "/login-recepcao", atendente: "/login-atendente", admin: "/login-admin" };
-
-  function loginForPath(path) {
-    if (path === "/" || path === "") return "/login-recepcao";
-    if (path.startsWith("/atendente")) return "/login-atendente";
-    return "/login-admin";
-  }
+  const LOGIN_PATH = "/login";
 
   async function initNav() {
     const nav = $("#topnav");
@@ -543,7 +550,7 @@
     try {
       role = (await api("/api/me")).role;
     } catch (e) {
-      window.location.href = loginForPath(location.pathname);
+      if (location.pathname !== LOGIN_PATH) window.location.href = LOGIN_PATH;
       return;
     }
     if (nav) {
@@ -557,7 +564,7 @@
         logout.onclick = async (ev) => {
           ev.preventDefault();
           try { await api("/api/logout", { method: "POST", body: "{}" }); } catch (e) { /* segue */ }
-          window.location.href = LOGIN_BY_ROLE[role] || "/login-recepcao";
+          window.location.href = LOGIN_PATH;
         };
       }
     }
@@ -594,12 +601,125 @@
     el.innerHTML = `<span class="live-dot"></span><span>${escapeHtml(text)}</span>`;
   }
 
+  /* ----------------------------------------------------------------
+     Diff-render: reconcilia lista por chave (só altera o que mudou)
+  ---------------------------------------------------------------- */
+  function elFromHTML(html) {
+    const tpl = document.createElement("template");
+    tpl.innerHTML = String(html).trim();
+    return tpl.content.firstElementChild;
+  }
+
+  function reconcileList(container, items, keyFn, htmlFn, emptyFn) {
+    if (!container) return;
+    if (!items.length) {
+      container.innerHTML = emptyFn ? emptyFn() : "";
+      return;
+    }
+    Array.from(container.children).forEach((el) => {
+      if (el.dataset.key == null || el.classList.contains("rec-leave")) el.remove();
+    });
+    const existing = new Map();
+    Array.from(container.children).forEach((el) => existing.set(el.dataset.key, el));
+
+    const next = [];
+    items.forEach((item, index) => {
+      const k = String(keyFn(item));
+      const html = String(htmlFn(item, index));
+      let el = existing.get(k);
+      if (el) {
+        existing.delete(k);
+        if (el._html !== html) {
+          const fresh = elFromHTML(html);
+          fresh.dataset.key = k;
+          fresh._html = html;
+          el.replaceWith(fresh);
+          el = fresh;
+        }
+      } else {
+        el = elFromHTML(html);
+        el.dataset.key = k;
+        el._html = html;
+        el.classList.add("rec-enter");
+        requestAnimationFrame(() => el.classList.remove("rec-enter"));
+      }
+      next.push(el);
+    });
+    existing.forEach((el) => {
+      el.classList.add("rec-leave");
+      container.appendChild(el);
+      setTimeout(() => el.remove(), 220);
+    });
+    // Ordena apenas os que ficaram, movendo só os que estão fora de lugar.
+    let anchor = container.firstChild;
+    next.forEach((el) => {
+      if (el === anchor) {
+        anchor = anchor.nextSibling;
+      } else {
+        container.insertBefore(el, anchor);
+      }
+    });
+  }
+
+  /* ----------------------------------------------------------------
+     SSE (server-sent events) + fallback de polling lento
+  ---------------------------------------------------------------- */
+  function connectQueueStream(onChange, opts = {}) {
+    const fallbackMs = opts.fallbackMs || 60000;
+    const url = opts.url || "/api/queue/stream";
+    let es = null;
+    let retryTimer = null;
+    let debounceTimer = null;
+    let retryMs = 5000;
+    const maxRetryMs = 60000;
+    const trigger = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(onChange, 150);
+    };
+    const pollTimer = setInterval(onChange, fallbackMs);
+
+    const connect = () => {
+      if (typeof EventSource === "undefined") return;
+      try {
+        es = new EventSource(url);
+      } catch (e) {
+        return;
+      }
+      es.addEventListener("changed", () => {
+        retryMs = 5000;
+        trigger();
+      });
+      es.addEventListener("error", () => {
+        try { es.close(); } catch (e) { /* noop */ }
+        es = null;
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(connect, retryMs);
+        retryMs = Math.min(retryMs * 2, maxRetryMs);
+      });
+    };
+    connect();
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) trigger();
+    });
+
+    return {
+      close() {
+        clearInterval(pollTimer);
+        clearTimeout(debounceTimer);
+        clearTimeout(retryTimer);
+        if (es) { try { es.close(); } catch (e) { /* noop */ } }
+      },
+    };
+  }
+
   window.$ = $;
   window.$$ = $$;
   window.UI = {
     icon, mascot, escapeHtml, fmtTime, todayStr, parseUTC, fmtLocalTime, fmtLocalDateTime,
     elapsedMin, fmtElapsed, plural, titleCase, avatar, initials, hashStr, api, toast, pinModal, confirmModal,
     infoModal, formatObs, notes, serviceChips, infoChips, TRANSPORT, initNav, setLive, NAV,
+    reconcileList, connectQueueStream,
   };
 
   document.addEventListener("DOMContentLoaded", initNav);

@@ -17,7 +17,7 @@ function waitingCard(item, position) {
       <div class="chips">${prioChip(item)}${serviceChips(item)}${infoChips(item)}</div>
       ${notes(item)}
       <div class="card-actions">
-        <button class="btn btn-primary btn-lg" data-action="start" data-event="${item.cod_evento}">${icon("play")}Iniciar atendimento</button>
+        <button class="btn btn-primary btn-lg" data-action="start" data-event="${item.cod_evento}">${icon("play")}Atender pet</button>
       </div>
     </article>`;
 }
@@ -36,12 +36,12 @@ function doingCard(item) {
       <div class="chips">
         ${serviceChips(item)}${infoChips(item)}
         ${item.claimed_at ? `<span class="chip time">${icon("play")}<span>Início ${fmtLocalTime(item.claimed_at)}</span></span>` : ""}
-        ${item.claimed_at ? `<span class="chip elapsed">${icon("timer")}<span class="elapsed-live" data-since="${escapeHtml(item.claimed_at)}">${fmtElapsed(elapsedMin(item.claimed_at))}</span></span>` : ""}
+        ${item.claimed_at ? `<span class="chip elapsed">${icon("timer")}<span class="elapsed-live" data-since="${escapeHtml(item.claimed_at)}"></span></span>` : ""}
       </div>
       ${notes(item)}
       ${item.attendant_nome ? `<div class="card-attendant">${avatar(item.attendant_nome, "person")}<span>${escapeHtml(item.attendant_nome)}</span></div>` : ""}
       <div class="card-actions">
-        <button class="btn btn-teal btn-lg" data-action="finish" data-event="${item.cod_evento}">${icon("checkCircle")}Finalizar</button>
+        <button class="btn btn-teal btn-lg" data-action="finish" data-event="${item.cod_evento}">${icon("checkCircle")}Encerrar</button>
       </div>
     </article>`;
 }
@@ -65,7 +65,7 @@ function emptyHTML(mascot, title, sub) {
 
 function startModal(item) {
   return pinModal({
-    title: `Iniciar ${titleCase(item.nom_animal) || "atendimento"}`,
+    title: `Atender ${titleCase(item.nom_animal) || "atendimento"}`,
     subtitle: "Digite seu PIN para iniciar o atendimento.",
     tone: "green",
     iconName: "paw",
@@ -75,7 +75,7 @@ function startModal(item) {
 
 function finishModal(item) {
   return pinModal({
-    title: `Finalizar ${titleCase(item.nom_animal) || "atendimento"}`,
+    title: `Encerrar ${titleCase(item.nom_animal) || "atendimento"}`,
     subtitle: item.attendant_nome ? `Digite o PIN de ${item.attendant_nome}, que pegou o pet.` : "Digite o PIN de quem pegou o pet.",
     tone: "teal",
     iconName: "checkCircle",
@@ -118,19 +118,24 @@ function render(queue) {
           .some((v) => String(v).toLowerCase().includes(query)))
     : waiting;
 
-  $("#waiting").innerHTML = filtered.length
-    ? filtered.map((item) => waitingCard(item, waiting.indexOf(item) + 1)).join("")
-    : emptyHTML(query ? "cat" : "dogSleep", query ? "Nenhum pet encontrado" : "Ninguém esperando", query ? "Tente outro nome." : "Quando um pet chegar, ele aparece aqui.");
+  UI.reconcileList(
+    $("#waiting"), filtered, (i) => i.cod_evento,
+    (item) => waitingCard(item, waiting.indexOf(item) + 1),
+    () => emptyHTML(query ? "cat" : "dogSleep", query ? "Nenhum pet encontrado" : "Ninguém esperando", query ? "Tente outro nome." : "Quando um pet chegar, ele aparece aqui.")
+  );
 
-  $("#doing").innerHTML = doing.length
-    ? doing.map(doingCard).join("")
-    : emptyHTML("dog", "Nenhum banho em andamento", "Pegue o próximo pet da fila.");
+  UI.reconcileList(
+    $("#doing"), doing, (i) => i.cod_evento, doingCard,
+    () => emptyHTML("dog", "Nenhum banho em andamento", "Pegue o próximo pet da fila.")
+  );
 
-  $("#done").innerHTML = done.length
-    ? done.map(doneRow).join("")
-    : emptyHTML("catSleep", "Nada finalizado ainda", "Os pets prontos aparecem aqui.");
+  UI.reconcileList(
+    $("#done"), done, (i) => i.cod_evento, doneRow,
+    () => emptyHTML("catSleep", "Nada finalizado ainda", "Os pets prontos aparecem aqui.")
+  );
 
   bindActions();
+  tickElapsed();
 }
 
 function bindActions() {
@@ -184,7 +189,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#btn-next").onclick = startNext;
   $("#btn-finish").onclick = () => {
     pinModal({
-      title: "Finalizar atendimento",
+      title: "Encerrar atendimento",
       subtitle: "Digite seu PIN para finalizar o seu atendimento em andamento.",
       tone: "teal",
       iconName: "checkCircle",
@@ -196,6 +201,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   $("#search").addEventListener("input", () => render(lastQueue));
   loadQueue();
-  setInterval(loadQueue, 10000);
+  UI.connectQueueStream(loadQueue);
   setInterval(tickElapsed, 30000);
 });

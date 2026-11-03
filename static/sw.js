@@ -3,7 +3,7 @@
    - API (/api/*): network-only (nunca cacheia — evita dados após logout).
    - Estáticos: cache-first.
    IMPORTANTE: incremente CACHE_VERSION a cada deploy. */
-const CACHE_VERSION = "cao-cia-v3";
+const CACHE_VERSION = "cao-cia-v11";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
 const STATIC_ASSETS = [

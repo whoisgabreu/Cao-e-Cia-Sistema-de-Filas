@@ -30,27 +30,29 @@
   </header>
 
   <main id="main">
-    <div class="panel">
-      <div class="panel-head">
-        <div>
-          <div class="panel-title"><span data-icon="plus"></span>Cadastrar atendente</div>
-          <div class="panel-sub">Cada atendente usa o próprio PIN para pegar e finalizar atendimentos.</div>
-        </div>
-      </div>
-      <div class="form-grid">
-        <label class="field"><span>Nome</span><input type="text" id="nome" maxlength="120" placeholder="Ex.: Ana Souza"></label>
-        <label class="field"><span>PIN (4 a 6 dígitos)</span><input type="password" id="pin" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="new-password"></label>
-        <button id="salvar" class="btn btn-primary" data-icon="check">Cadastrar</button>
-      </div>
-      <div class="form-err" id="form-err"></div>
-    </div>
-
-    <div class="section-head">
+    <div class="section-head" style="margin-top:0">
       <div class="sec-icon teal" data-icon="users"></div>
       <h2>Equipe</h2>
       <span class="count" id="n-att">0</span>
+      <button class="btn btn-primary btn-sm" id="add-att" data-icon="plus" style="margin-left:auto">Adicionar</button>
     </div>
-    <div id="lista" class="person-grid"></div>
+    <div class="panel-sub" style="margin:-4px 0 12px">Cada atendente usa o próprio PIN para pegar e finalizar atendimentos.</div>
+
+    <div class="table-wrap">
+      <table class="att-table">
+        <thead>
+          <tr>
+            <th>Atendente</th>
+            <th>Desde</th>
+            <th>Status</th>
+            <th class="num">Total</th>
+            <th class="num">Este mês</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="lista"></tbody>
+      </table>
+    </div>
   </main>
 
   <script src="/static/ui.js"></script>

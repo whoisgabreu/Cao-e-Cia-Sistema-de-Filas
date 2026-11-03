@@ -7,11 +7,13 @@ let keypadBusy = false;
 let keypadMode = null; // 'pegar' | 'finalizar'
 let confirmData = null;
 let currentPin = "";
+let finalizing = false;
 let filaOpen = false;
 let feedbackTimer = null;
 let prevPresente = null; // Set de cod_evento presentes (para notificar novas chegadas)
 let arriveTimer = null;
 let nextItem = null; // próximo pet exibido no hero
+let heroSig = "";    // assinatura do hero (evita re-render desnecessário)
 let pegarTarget = null; // cod_evento do pet que o atendente confirmou pegar
 
 function overlaysOpen() {
@@ -62,11 +64,16 @@ function render(queue) {
   nextItem = waiting[0] || null;
   if (nextItem) {
     const next = nextItem;
-    $("#next-avatar").innerHTML = avatar(next.nom_animal, "xl");
-    $("#next-name").textContent = titleCase(next.nom_animal) || "Pet";
-    $("#next-service").innerHTML = (prioChip(next) + (next.services || [])
-      .map((s) => `<span class="chip service">${icon("scissors")}<span>${escapeHtml(titleCase(s.nom_prod_serv))}</span></span>`).join(""));
-    $("#next-tutor").innerHTML = next.nom_cliente ? `${icon("user")}<span>${escapeHtml(titleCase(next.nom_cliente))}</span>` : "";
+    const sig = `${next.cod_evento}|${next.nom_animal}|${next.nom_cliente}|`
+      + `${(next.services || []).map((s) => s.nom_prod_serv).join(",")}|${prioChip(next) ? 1 : 0}`;
+    if (sig !== heroSig) {
+      heroSig = sig;
+      $("#next-avatar").innerHTML = avatar(next.nom_animal, "xl");
+      $("#next-name").textContent = titleCase(next.nom_animal) || "Pet";
+      $("#next-service").innerHTML = (prioChip(next) + (next.services || [])
+        .map((s) => `<span class="chip service">${icon("scissors")}<span>${escapeHtml(titleCase(s.nom_prod_serv))}</span></span>`).join(""));
+      $("#next-tutor").innerHTML = next.nom_cliente ? `${icon("user")}<span>${escapeHtml(titleCase(next.nom_cliente))}</span>` : "";
+    }
     show("#next-pet");
   }
 
@@ -81,8 +88,11 @@ function render(queue) {
 }
 
 function renderFila(waiting) {
-  $("#ver-fila-wrap").innerHTML = waiting.length
-    ? waiting.map((i, idx) => `
+  UI.reconcileList(
+    $("#ver-fila-wrap"),
+    waiting,
+    (i) => i.cod_evento,
+    (i, idx) => `
         <div class="queue-row">
           <span class="queue-pos">${idx + 1}</span>
           ${avatar(i.nom_animal, "sm")}
@@ -91,8 +101,29 @@ function renderFila(waiting) {
             <div class="queue-meta">${escapeHtml(titleCase(i.nom_cliente))}</div>
           </div>
           ${prioChip(i)}
-        </div>`).join("")
-    : `<div class="queue-empty">Fila vazia.</div>`;
+        </div>`,
+    () => `<div class="queue-empty">Fila vazia.</div>`
+  );
+}
+
+function showEmAtendimento() {
+  const doing = lastQueue.filter((i) => i.status === "em_atendimento");
+  const rows = doing.map((i) => `
+      <div class="confirm-row">
+        <span>${icon("user")}<span>${escapeHtml(titleCase(i.attendant_nome) || "—")}</span></span>
+        <span><b>${escapeHtml(titleCase(i.nom_animal) || "Pet")}</b></span>
+      </div>`).join("");
+  const body = doing.length
+    ? `<div class="confirm-rows">${rows}</div>`
+    : `<div class="note">${icon("info")}<span>Nenhum atendimento em andamento.</span></div>`;
+  infoModal({
+    title: "Em atendimento",
+    subtitle: `${doing.length} em andamento`,
+    iconName: "scissors",
+    tone: "teal",
+    bodyHTML: body,
+    okLabel: "Fechar",
+  });
 }
 
 function notifyArrivals(waiting) {
@@ -164,7 +195,7 @@ function openKeypad(mode) {
   pin = "";
   if (mode === "pegar") pegarTarget = nextItem ? nextItem.cod_evento : null;
   const pegar = mode === "pegar";
-  $("#keypad-title").textContent = pegar ? "Pegar próximo pet" : "Finalizar atendimento";
+  $("#keypad-title").textContent = pegar ? "Atender pet" : "Encerrar atendimento";
   $("#keypad-sub").textContent = "Digite seu PIN";
   $("#keypad-icon").className = `modal-icon ${pegar ? "green" : "teal"}`;
   $("#keypad-icon").innerHTML = icon(pegar ? "paw" : "checkCircle");
@@ -331,6 +362,10 @@ function closeConfirm() {
 }
 
 async function doFinalize() {
+  if (finalizing) return;
+  finalizing = true;
+  const btn = $("#cf-finalizar");
+  if (btn) btn.disabled = true;
   try {
     const data = await api("/api/queue/finish", { method: "POST", body: JSON.stringify({ pin: currentPin }) });
     closeConfirm();
@@ -341,6 +376,9 @@ async function doFinalize() {
     closeConfirm();
     showFeedback(e.message, true);
     loadQueue();
+  } finally {
+    finalizing = false;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -389,6 +427,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   $("#btn-finalizar").onclick = () => openKeypad("finalizar");
   $("#btn-retry").onclick = loadQueue;
+  $("#btn-refresh").onclick = () => window.location.reload();
   $("#keypad-cancel").onclick = closeKeypad;
 
   $("#cf-cancelar").onclick = closeConfirm;
@@ -401,6 +440,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target === $("#confirm-overlay")) closeConfirm();
   });
 
+  $("#btn-em-atendimento").onclick = showEmAtendimento;
+
   $("#btn-ver-fila").onclick = () => {
     filaOpen = !filaOpen;
     $("#ver-fila-wrap").classList.toggle("hidden", !filaOpen);
@@ -409,5 +450,5 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   loadQueue();
-  setInterval(() => { if (!overlaysOpen()) refreshQueue(); }, 5000);
+  UI.connectQueueStream(() => { if (!overlaysOpen()) refreshQueue(); });
 });

@@ -1,16 +1,19 @@
+import asyncio
+import contextlib
 import os
 import threading
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import auth
 import config
 import db
+import events
 import export_xlsx
 import sync
 
@@ -21,11 +24,6 @@ HOME_BY_ROLE = {
     auth.ROLE_RECEPCAO: "/",
     auth.ROLE_ATENDENTE: "/atendente-minimalista",
     auth.ROLE_ADMIN: "/audit",
-}
-LOGIN_BY_ROLE = {
-    auth.ROLE_RECEPCAO: "/login-recepcao",
-    auth.ROLE_ATENDENTE: "/login-atendente",
-    auth.ROLE_ADMIN: "/login-admin",
 }
 
 
@@ -107,6 +105,57 @@ def _login_reset(ip: str) -> None:
         _login_fails.pop(ip, None)
 
 
+# Rate-limit das ações com PIN: 10 falhas / 5 min por IP.
+_PIN_WINDOW = 5 * 60
+_PIN_MAX_FAILS = 10
+_pin_fails: dict[str, list[float]] = {}
+_pin_lock = threading.Lock()
+
+
+def _pin_blocked(ip: str) -> bool:
+    now = time.time()
+    with _pin_lock:
+        fails = [t for t in _pin_fails.get(ip, []) if now - t < _PIN_WINDOW]
+        _pin_fails[ip] = fails
+        return len(fails) >= _PIN_MAX_FAILS
+
+
+def _pin_register_fail(ip: str) -> None:
+    now = time.time()
+    with _pin_lock:
+        fails = [t for t in _pin_fails.get(ip, []) if now - t < _PIN_WINDOW]
+        fails.append(now)
+        _pin_fails[ip] = fails
+
+
+def _pin_reset(ip: str) -> None:
+    with _pin_lock:
+        _pin_fails.pop(ip, None)
+
+
+def _pin_auth_or_429(request: Request, pin: str) -> dict:
+    ip = _client_ip(request)
+    if _pin_blocked(ip):
+        raise HTTPException(429, "Muitas tentativas de PIN. Tente novamente em alguns minutos.")
+    attendant = auth.authenticate_attendant(pin)
+    if not attendant:
+        _pin_register_fail(ip)
+        raise HTTPException(401, "PIN incorreto.")
+    _pin_reset(ip)
+    return attendant
+
+
+def _require_admin_password(request: Request, password: str) -> None:
+    """Confirma a senha do admin (além da sessão) para ações destrutivas."""
+    key = f"admin-clear:{_client_ip(request)}"
+    if _login_blocked(key):
+        raise HTTPException(429, "Muitas tentativas. Tente novamente em alguns minutos.")
+    if not auth.verify_admin_password(password):
+        _login_register_fail(key)
+        raise HTTPException(401, "Senha de administrador incorreta.")
+    _login_reset(key)
+
+
 def _validate_config() -> None:
     if not config.SESSION_SECRET:
         print("[app] AVISO: SESSION_SECRET vazio — o login não funcionará. Defina no ambiente.")
@@ -127,20 +176,26 @@ def _validate_config() -> None:
 async def lifespan(app: FastAPI):
     db.init_db()
     _validate_config()
+    broadcaster = asyncio.create_task(events.hub.run())
+    thread = None
     if config.DISABLE_SYNC:
         print("[app] sincronização desativada (DISABLE_SYNC=1)")
+    else:
+        thread = threading.Thread(
+            target=sync.sync_loop,
+            args=(_stop_sync, config.SYNC_INTERVAL_SECONDS),
+            daemon=True,
+            name="vetsoft-sync",
+        )
+        thread.start()
+        print(f"[app] sincronização a cada {config.SYNC_INTERVAL_SECONDS}s (tenant={config.TENANT})")
+    try:
         yield
-        return
-    thread = threading.Thread(
-        target=sync.sync_loop,
-        args=(_stop_sync, config.SYNC_INTERVAL_SECONDS),
-        daemon=True,
-        name="vetsoft-sync",
-    )
-    thread.start()
-    print(f"[app] sincronização a cada {config.SYNC_INTERVAL_SECONDS}s (tenant={config.TENANT})")
-    yield
-    _stop_sync.set()
+    finally:
+        _stop_sync.set()
+        broadcaster.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await broadcaster
 
 
 app = FastAPI(title="Fila Banho & Tosa - Cão & Cia", lifespan=lifespan)
@@ -159,11 +214,24 @@ async def session_renewal(request: Request, call_next):
 
 
 @app.middleware("http")
-async def static_no_cache(request: Request, call_next):
-    """Força revalidação dos estáticos (evita CSS/JS antigos após deploy)."""
+async def cache_headers(request: Request, call_next):
+    """Estáticos revalidam; HTML/redirects/API nunca são cacheados (dependem da sessão)."""
     response = await call_next(request)
-    if request.url.path.startswith("/static/"):
+    path = request.url.path
+    if path in ("/sw.js", "/manifest.webmanifest"):
         response.headers["Cache-Control"] = "no-cache"
+        return response
+    if path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+    ctype = str(response.headers.get("content-type", ""))
+    if (
+        path.startswith("/api/")
+        or ctype.startswith("text/html")
+        or response.status_code in (301, 302, 303, 307, 308)
+    ):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Vary"] = "Cookie"
     return response
 
 
@@ -192,10 +260,14 @@ class PrioridadeAction(BaseModel):
     ativo: bool = True
 
 
+class ClearAction(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
+
 class LoginPayload(BaseModel):
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=200)
-    role: str = Field(min_length=1, max_length=20)
+    role: str | None = Field(default=None, max_length=20)
 
 
 # ----------------------------------------------------------------------
@@ -208,12 +280,16 @@ def api_login(payload: LoginPayload, request: Request, response: Response):
     ip = _client_ip(request)
     if _login_blocked(ip):
         raise HTTPException(429, "Muitas tentativas. Tente novamente em alguns minutos.")
-    if not auth.authenticate_user(payload.username, payload.password, payload.role):
+    if payload.role:
+        role = payload.role if auth.authenticate_user(payload.username, payload.password, payload.role) else None
+    else:
+        role = auth.authenticate_any(payload.username, payload.password)
+    if not role:
         _login_register_fail(ip)
         raise HTTPException(401, "Usuário ou senha inválidos.")
     _login_reset(ip)
-    _session_cookie(payload.role, response, secure=_is_https(request))
-    return {"data": {"role": payload.role, "home": HOME_BY_ROLE[payload.role]}}
+    _session_cookie(role, response, secure=_is_https(request))
+    return {"data": {"role": role, "home": HOME_BY_ROLE[role]}}
 
 
 @app.post("/api/logout")
@@ -247,17 +323,29 @@ def _protected_page(path: str, allowed: tuple[str, ...]):
         if role:
             # Autenticado, mas sem permissão nesta tela → vai para a tela do próprio papel.
             return RedirectResponse(HOME_BY_ROLE.get(role, "/"), status_code=302)
-        # Sem sessão → login do papel exigido.
-        return RedirectResponse(LOGIN_BY_ROLE[allowed[0]], status_code=302)
+        # Sem sessão → tela de login dedicada.
+        return RedirectResponse("/login", status_code=302)
     return handler
+
+
+def _login_response(request: Request):
+    role = current_role(request)
+    if role:
+        return RedirectResponse(HOME_BY_ROLE.get(role, "/"), status_code=302)
+    return FileResponse(os.path.join(STATIC_DIR, "login.html"))
 
 
 # ----------------------------------------------------------------------
 # Páginas
 # ----------------------------------------------------------------------
 @app.get("/", include_in_schema=False)
-def index(request: Request):
-    return _protected_page("index.html", (auth.ROLE_RECEPCAO, auth.ROLE_ADMIN))(request)
+def root(request: Request):
+    role = current_role(request)
+    if role is None:
+        return RedirectResponse("/login", status_code=302)
+    if role == auth.ROLE_ATENDENTE:
+        return RedirectResponse("/atendente-minimalista", status_code=302)
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
 @app.get("/audit", include_in_schema=False)
@@ -270,9 +358,11 @@ def attendants_page(request: Request):
     return _protected_page("attendants.html", (auth.ROLE_ADMIN,))(request)
 
 
-@app.get("/ferramentas", include_in_schema=False)
-def ferramentas_page(request: Request):
-    return _protected_page("ferramentas.html", (auth.ROLE_ADMIN,))(request)
+@app.get("/debug", include_in_schema=False)
+def debug_page(request: Request):
+    response = _protected_page("debug.html", (auth.ROLE_ADMIN,))(request)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
 
 
 @app.get("/atendente", include_in_schema=False)
@@ -285,19 +375,24 @@ def atendente_minimal_page(request: Request):
     return _protected_page("atendente-minimal.html", (auth.ROLE_ATENDENTE, auth.ROLE_ADMIN))(request)
 
 
+@app.get("/login", include_in_schema=False)
+def login_page(request: Request):
+    return _login_response(request)
+
+
 @app.get("/login-recepcao", include_in_schema=False)
-def login_recepcao():
-    return FileResponse(os.path.join(STATIC_DIR, "login.html"))
+def login_recepcao(request: Request):
+    return _login_response(request)
 
 
 @app.get("/login-admin", include_in_schema=False)
-def login_admin():
-    return FileResponse(os.path.join(STATIC_DIR, "login.html"))
+def login_admin(request: Request):
+    return _login_response(request)
 
 
 @app.get("/login-atendente", include_in_schema=False)
-def login_atendente():
-    return FileResponse(os.path.join(STATIC_DIR, "login.html"))
+def login_atendente(request: Request):
+    return _login_response(request)
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)
@@ -321,6 +416,39 @@ def api_queue():
     return {"data": db.get_queue()}
 
 
+@app.get("/api/queue/stream", include_in_schema=False)
+async def api_queue_stream(request: Request):
+    """SSE: avisa o cliente quando a fila muda (sem Redis)."""
+    if current_role(request) is None:
+        raise HTTPException(401, "Não autorizado")
+
+    async def gen():
+        q = events.hub.subscribe()
+        try:
+            yield "retry: 5000\n\n"
+            yield "event: ready\ndata: {}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    await asyncio.wait_for(q.get(), timeout=15)
+                    yield "event: changed\ndata: {}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            events.hub.unsubscribe(q)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 @app.get("/api/attendants", dependencies=[Depends(require_role(auth.ROLE_ADMIN))])
 def api_attendants(incluir_inativos: bool = False):
     return {"data": db.get_attendants(incluir_inativos=incluir_inativos)}
@@ -328,6 +456,8 @@ def api_attendants(incluir_inativos: bool = False):
 
 @app.post("/api/attendants", status_code=201, dependencies=[Depends(require_role(auth.ROLE_ADMIN))])
 def api_create_attendant(payload: AttendantCreate):
+    if auth.authenticate_attendant(payload.pin):
+        raise HTTPException(409, "PIN já está em uso por outro atendente.")
     pin_hash, pin_salt = auth.hash_pin(payload.pin)
     attendant = db.create_attendant(payload.nome.strip(), pin_hash, pin_salt)
     return {"data": attendant}
@@ -339,6 +469,9 @@ def api_update_attendant(attendant_id: int, payload: AttendantUpdate):
         raise HTTPException(422, "Informe ao menos um campo para atualizar")
     pin_hash, pin_salt = None, None
     if payload.pin is not None:
+        existing = auth.authenticate_attendant(payload.pin)
+        if existing and existing["id"] != attendant_id:
+            raise HTTPException(409, "PIN já está em uso por outro atendente.")
         pin_hash, pin_salt = auth.hash_pin(payload.pin)
     attendant = db.update_attendant(
         attendant_id,
@@ -372,10 +505,8 @@ def api_reactivate_attendant(attendant_id: int):
 
 
 @app.post("/api/queue/{cod_evento}/claim", dependencies=[Depends(require_any_session)])
-def api_claim(cod_evento: int, payload: PinAction):
-    attendant = auth.authenticate_attendant(payload.pin)
-    if not attendant:
-        raise HTTPException(401, "PIN incorreto.")
+def api_claim(cod_evento: int, payload: PinAction, request: Request):
+    attendant = _pin_auth_or_429(request, payload.pin)
     result = db.claim_evento(cod_evento, attendant["id"])
     if result == "ja_em_atendimento":
         raise HTTPException(409, "Você já está em um atendimento. Finalize-o antes de pegar outro.")
@@ -429,10 +560,8 @@ def api_restore(cod_evento: int):
 
 
 @app.post("/api/queue/{cod_evento}/start", dependencies=[Depends(require_any_session)])
-def api_start(cod_evento: int, payload: PinAction):
-    attendant = auth.authenticate_attendant(payload.pin)
-    if not attendant:
-        raise HTTPException(401, "PIN incorreto.")
+def api_start(cod_evento: int, payload: PinAction, request: Request):
+    attendant = _pin_auth_or_429(request, payload.pin)
     result = db.start_evento(cod_evento, attendant["id"])
     if result == "ja_em_atendimento":
         raise HTTPException(409, "Você já está em um atendimento. Finalize-o antes de iniciar outro.")
@@ -442,10 +571,8 @@ def api_start(cod_evento: int, payload: PinAction):
 
 
 @app.post("/api/queue/next", dependencies=[Depends(require_any_session)])
-def api_next(payload: PinAction):
-    attendant = auth.authenticate_attendant(payload.pin)
-    if not attendant:
-        raise HTTPException(401, "PIN incorreto.")
+def api_next(payload: PinAction, request: Request):
+    attendant = _pin_auth_or_429(request, payload.pin)
     result = db.start_next_evento(attendant["id"])
     if result == "ja_em_atendimento":
         raise HTTPException(409, "Você já está em um atendimento.")
@@ -470,10 +597,8 @@ def api_next(payload: PinAction):
 
 
 @app.post("/api/queue/finish/prepare", dependencies=[Depends(require_any_session)])
-def api_finish_prepare(payload: PinAction):
-    attendant = auth.authenticate_attendant(payload.pin)
-    if not attendant:
-        raise HTTPException(401, "PIN incorreto.")
+def api_finish_prepare(payload: PinAction, request: Request):
+    attendant = _pin_auth_or_429(request, payload.pin)
     item = db.finish_prepare(attendant["id"])
     if item is None:
         raise HTTPException(409, "Você não está com nenhum pet em atendimento. Só quem pegou o pet pode finalizar.")
@@ -490,10 +615,8 @@ def api_finish_prepare(payload: PinAction):
 
 
 @app.post("/api/queue/finish", dependencies=[Depends(require_any_session)])
-def api_finish(payload: PinAction):
-    attendant = auth.authenticate_attendant(payload.pin)
-    if not attendant:
-        raise HTTPException(401, "PIN incorreto.")
+def api_finish(payload: PinAction, request: Request):
+    attendant = _pin_auth_or_429(request, payload.pin)
     item = db.checkout_by_attendant(attendant["id"])
     if item is None:
         raise HTTPException(409, "Você não está com nenhum pet em atendimento. Só quem pegou o pet pode finalizar.")
@@ -508,10 +631,8 @@ def api_finish(payload: PinAction):
 
 
 @app.post("/api/queue/{cod_evento}/checkout", dependencies=[Depends(require_any_session)])
-def api_checkout(cod_evento: int, payload: PinAction):
-    attendant = auth.authenticate_attendant(payload.pin)
-    if not attendant:
-        raise HTTPException(401, "PIN incorreto.")
+def api_checkout(cod_evento: int, payload: PinAction, request: Request):
+    attendant = _pin_auth_or_429(request, payload.pin)
     item = db.checkout_evento(cod_evento, attendant["id"])
     if item is None:
         raise HTTPException(409, "Este pet está com outro atendente. Só quem pegou o pet pode finalizar.")
@@ -539,6 +660,15 @@ def api_audit(
     return {"data": db.get_audit(dat_inicio, dat_fim, cod_atendente)}
 
 
+@app.get("/api/audit/serie", dependencies=[Depends(require_role(auth.ROLE_ADMIN))])
+def api_audit_serie(
+    dat_inicio: str | None = None,
+    dat_fim: str | None = None,
+    cod_atendente: int | None = None,
+):
+    return {"data": db.get_audit_serie(dat_inicio, dat_fim, cod_atendente)}
+
+
 @app.get("/api/audit/export.xlsx", include_in_schema=True, dependencies=[Depends(require_role(auth.ROLE_ADMIN))])
 def api_audit_export(
     dat_inicio: str | None = None,
@@ -554,7 +684,7 @@ def api_audit_export(
 
 
 # ----------------------------------------------------------------------
-# Ferramentas / Debug (protegidas por sessão admin)
+# Ferramentas / Debug (sessão admin + senha do admin)
 # ----------------------------------------------------------------------
 @app.get("/api/debug/status", dependencies=[Depends(require_role(auth.ROLE_ADMIN))])
 def api_debug_status():
@@ -562,19 +692,22 @@ def api_debug_status():
 
 
 @app.post("/api/debug/clear-queue", dependencies=[Depends(require_role(auth.ROLE_ADMIN))])
-def api_debug_clear_queue():
+def api_debug_clear_queue(payload: ClearAction, request: Request):
+    _require_admin_password(request, payload.password)
     cleared = db.clear_queue()
     synced = sync.sync_queue()
     return {"data": {"limpos": cleared, "sync": synced, "status": db.count_queue()}}
 
 
 @app.post("/api/debug/clear-audit", dependencies=[Depends(require_role(auth.ROLE_ADMIN))])
-def api_debug_clear_audit():
+def api_debug_clear_audit(payload: ClearAction, request: Request):
+    _require_admin_password(request, payload.password)
     return {"data": {"limpos": db.clear_attendances()}}
 
 
 @app.post("/api/debug/clear-all", dependencies=[Depends(require_role(auth.ROLE_ADMIN))])
-def api_debug_clear_all():
+def api_debug_clear_all(payload: ClearAction, request: Request):
+    _require_admin_password(request, payload.password)
     q = db.clear_queue()
     a = db.clear_attendances()
     synced = sync.sync_queue()

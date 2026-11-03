@@ -31,10 +31,9 @@ def authenticate_attendant(pin: str) -> dict | None:
     """Retorna o atendente cujo PIN bate, ou None."""
     if not pin:
         return None
-    for attendant in db.get_attendants():
-        row = db.get_attendant(attendant["id"])
-        if row and verify_pin(pin, row["pin_hash"], row["pin_salt"]):
-            return attendant
+    for row in db.get_attendants_full():
+        if verify_pin(pin, row["pin_hash"], row["pin_salt"]):
+            return {"id": row["id"], "nome": row["nome"], "ativo": row["ativo"]}
     return None
 
 
@@ -58,6 +57,21 @@ def authenticate_user(username: str, password: str, role: str) -> bool:
     if not user or not pwd:
         return False
     return hmac.compare_digest(username or "", user) and hmac.compare_digest(password or "", pwd)
+
+
+def authenticate_any(username: str, password: str) -> str | None:
+    """Descobre o papel pelas credenciais (admin → recepção → atendente)."""
+    for role in (ROLE_ADMIN, ROLE_RECEPCAO, ROLE_ATENDENTE):
+        if authenticate_user(username, password, role):
+            return role
+    return None
+
+
+def verify_admin_password(password: str) -> bool:
+    """Confere a senha do admin (confirmação de ações sensíveis)."""
+    if not config.ADMIN_PASSWORD:
+        return False
+    return hmac.compare_digest(password or "", config.ADMIN_PASSWORD)
 
 
 # ----------------------------------------------------------------------

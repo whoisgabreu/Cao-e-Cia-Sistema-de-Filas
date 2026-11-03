@@ -57,6 +57,54 @@
       </div>
     </div>
 
+    <div class="section-head">
+      <div class="sec-icon teal" data-icon="database"></div>
+      <h2>Banco local <span class="panel-sub" style="margin-left:8px">hoje</span></h2>
+      <button id="refresh-db" class="btn btn-ghost btn-sm" data-icon="refresh" style="margin-left:auto">Atualizar</button>
+    </div>
+    <div class="stats-row stats-6">
+      <div class="stat-card slate">
+        <div class="stat-icon" data-icon="calendar"></div>
+        <div><div class="stat-value" id="db-aguardando">-</div><div class="stat-label">Agendados</div></div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-icon" data-icon="bell"></div>
+        <div><div class="stat-value" id="db-presente">-</div><div class="stat-label">Esperando</div></div>
+      </div>
+      <div class="stat-card teal">
+        <div class="stat-icon" data-icon="scissors"></div>
+        <div><div class="stat-value" id="db-em_atendimento">-</div><div class="stat-label">Em banho</div></div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-icon" data-icon="checkCircle"></div>
+        <div><div class="stat-value" id="db-concluido">-</div><div class="stat-label">Concluídos</div></div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-icon" data-icon="ban"></div>
+        <div><div class="stat-value" id="db-cancelado">-</div><div class="stat-label">Cancelados</div></div>
+      </div>
+      <div class="stat-card teal">
+        <div class="stat-icon" data-icon="database"></div>
+        <div><div class="stat-value" id="db-total">-</div><div class="stat-label">Total</div></div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-head"><h3>Distribuição de hoje</h3></div>
+        <div class="donut-wrap">
+          <div id="donut" class="donut" role="img" aria-label="Distribuição dos pets por status">
+            <div class="donut-center"><b id="donut-total">0</b><span>pets</span></div>
+          </div>
+          <div id="donut-legend" class="donut-legend"></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head"><h3>Banhos por dia <span class="muted">no período</span></h3></div>
+        <div id="serie-chart" class="bar-chart" role="img" aria-label="Banhos finalizados por dia"></div>
+      </div>
+    </div>
+
     <div class="stats-row audit-stats">
       <div class="stat-card green">
         <div class="stat-icon" data-icon="checkCircle"></div>

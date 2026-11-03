@@ -17,7 +17,7 @@ function cardHTML(item) {
   }
   if (item.status === "em_atendimento" && item.claimed_at) {
     chips.push(`<span class="chip time">${icon("play")}<span>Início ${fmtLocalTime(item.claimed_at)}</span></span>`);
-    chips.push(`<span class="chip elapsed">${icon("timer")}<span class="elapsed-live" data-since="${escapeHtml(item.claimed_at)}">${fmtElapsed(elapsedMin(item.claimed_at))}</span></span>`);
+    chips.push(`<span class="chip elapsed">${icon("timer")}<span class="elapsed-live" data-since="${escapeHtml(item.claimed_at)}"></span></span>`);
   }
   if (item.status === "concluido" && item.finished_at) {
     chips.push(`<span class="chip time">${icon("checkCircle")}<span>Pronto ${fmtLocalTime(item.finished_at)}</span></span>`);
@@ -120,15 +120,19 @@ function render(queue) {
   const strip = $("#cancel-strip");
   strip.classList.toggle("hidden", cancelled.length === 0);
   $("#cancel-count").textContent = cancelled.length;
-  $("#cancel-body").innerHTML = cancelled
-    .sort((a, b) => (b.cancelled_at || "").localeCompare(a.cancelled_at || ""))
-    .map(cancelledCard).join("");
+  UI.reconcileList(
+    $("#cancel-body"),
+    cancelled.slice().sort((a, b) => (b.cancelled_at || "").localeCompare(a.cancelled_at || "")),
+    (i) => i.cod_evento,
+    cancelledCard,
+    () => ""
+  );
 
   const anyMatch = queue.some((item) => matches(item, q));
   $("#board-search-note").classList.toggle("hidden", !(q && !anyMatch));
 
   Object.entries(buckets).forEach(([status, items]) => {
-    $(`.col-${status} .cards`).innerHTML = items.length ? items.map(cardHTML).join("") : emptyHTML(status);
+    UI.reconcileList($(`.col-${status} .cards`), items, (i) => i.cod_evento, cardHTML, () => emptyHTML(status));
     $(`.col-${status} .count`).textContent = q ? `${items.length}/${totals[status]}` : totals[status];
     const tab = $(`.board-tab[data-view="${status}"] .tab-count`);
     if (tab) tab.textContent = totals[status];
@@ -140,6 +144,7 @@ function render(queue) {
     <span class="summary-chip"><span class="dot" style="background:var(--st-concluido)"></span><b>${totals.concluido}</b> prontos hoje</span>`;
 
   bindActions();
+  tickElapsed();
 }
 
 function bindActions() {
@@ -233,6 +238,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#sync-now").onclick = async () => {
     const btn = $("#sync-now");
+    if (btn.disabled) return;
+    btn.disabled = true;
     btn.classList.add("loading");
     setLive("loading", "Sincronizando...");
     try {
@@ -244,10 +251,11 @@ document.addEventListener("DOMContentLoaded", () => {
       toast(e.message, "error");
     } finally {
       btn.classList.remove("loading");
+      btn.disabled = false;
     }
   };
 
   loadQueue();
-  setInterval(loadQueue, 10000);
+  UI.connectQueueStream(loadQueue);
   setInterval(tickElapsed, 30000);
 });

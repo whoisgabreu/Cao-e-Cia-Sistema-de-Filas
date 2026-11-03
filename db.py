@@ -6,6 +6,10 @@ import config
 
 _local = threading.local()
 
+# Memoização dos catálogos (invalidada a cada escrita em cache_*).
+_services_names_cache: dict[int, str] | None = None
+_animals_ident_cache: dict[int, dict] | None = None
+
 STATUS_AGUARDANDO = "aguardando"
 STATUS_PRESENTE = "presente"
 STATUS_EM_ATENDIMENTO = "em_atendimento"
@@ -123,6 +127,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     acols = {r["name"] for r in conn.execute("PRAGMA table_info(animal_cache)").fetchall()}
     if "obs_animal" not in acols:
         conn.execute("ALTER TABLE animal_cache ADD COLUMN obs_animal TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_attendances_attendant_finished "
+        "ON attendances(attendant_id, finished_at)"
+    )
 
 
 def rows_to_list(rows) -> list[dict]:
@@ -182,9 +190,28 @@ def get_queue(today: str | None = None) -> list[dict]:
     return items
 
 
+def queue_signature(today: str | None = None) -> tuple:
+    """Assinatura leve do estado da fila de hoje (para detectar mudanças no SSE).
+
+    Toda mutação atualiza `updated_at`; inclui contagem (novos/removidos) e
+    prioridade. Não precisa instrumentar cada endpoint.
+    """
+    today = today or config.business_today()
+    row = get_conn().execute(
+        """
+        SELECT COUNT(*) AS c, MAX(updated_at) AS u, MAX(prioridade_at) AS p
+        FROM queue_items
+        WHERE substr(dat_evento, 1, 10) = ?
+        """,
+        (today,),
+    ).fetchone()
+    return (row["c"], row["u"], row["p"])
+
+
 def cache_services(services: list[dict]) -> None:
     if not services:
         return
+    global _services_names_cache
     conn = get_conn()
     conn.executemany(
         """
@@ -205,12 +232,16 @@ def cache_services(services: list[dict]) -> None:
         ],
     )
     conn.commit()
+    _services_names_cache = None
 
 
 def get_services_names() -> dict[int, str]:
-    conn = get_conn()
-    rows = conn.execute("SELECT cod_prod_serv, nom_prod_serv FROM prod_serv_cache").fetchall()
-    return {r["cod_prod_serv"]: r["nom_prod_serv"] for r in rows}
+    global _services_names_cache
+    if _services_names_cache is None:
+        conn = get_conn()
+        rows = conn.execute("SELECT cod_prod_serv, nom_prod_serv FROM prod_serv_cache").fetchall()
+        _services_names_cache = {r["cod_prod_serv"]: r["nom_prod_serv"] for r in rows}
+    return _services_names_cache
 
 
 def cache_is_fresh(max_age_seconds: int, table: str = "prod_serv_cache") -> bool:
@@ -227,6 +258,7 @@ def cache_is_fresh(max_age_seconds: int, table: str = "prod_serv_cache") -> bool
 def cache_animals(animals: list[dict]) -> None:
     if not animals:
         return
+    global _animals_ident_cache
     conn = get_conn()
     conn.executemany(
         """
@@ -249,21 +281,25 @@ def cache_animals(animals: list[dict]) -> None:
         ],
     )
     conn.commit()
+    _animals_ident_cache = None
 
 
 def get_animals_ident() -> dict[int, dict]:
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT cod_animal, num_identificacao, nom_animal, obs_animal FROM animal_cache"
-    ).fetchall()
-    return {
-        r["cod_animal"]: {
-            "num_identificacao": r["num_identificacao"],
-            "nom_animal": r["nom_animal"],
-            "obs_animal": r["obs_animal"],
+    global _animals_ident_cache
+    if _animals_ident_cache is None:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT cod_animal, num_identificacao, nom_animal, obs_animal FROM animal_cache"
+        ).fetchall()
+        _animals_ident_cache = {
+            r["cod_animal"]: {
+                "num_identificacao": r["num_identificacao"],
+                "nom_animal": r["nom_animal"],
+                "obs_animal": r["obs_animal"],
+            }
+            for r in rows
         }
-        for r in rows
-    }
+    return _animals_ident_cache
 
 
 def get_cached_animal_ids() -> set[int]:
@@ -281,8 +317,11 @@ def get_animals_missing_obs() -> set[int]:
     return {r["cod_animal"] for r in rows}
 
 
-def upsert_evento(ev: dict) -> str:
-    """Insere/atualiza um evento vindo do VetSoft. Retorna o status resultante."""
+def upsert_evento(ev: dict, commit: bool = True) -> str:
+    """Insere/atualiza um evento vindo do VetSoft. Retorna o status resultante.
+
+    Com `commit=False`, deixa a transação aberta para o chamador agrupar escritas.
+    """
     conn = get_conn()
     cod_evento = ev["cod_evento"]
     vetsoft_situacao = ev.get("cod_situacao_atual")
@@ -324,7 +363,8 @@ def upsert_evento(ev: dict) -> str:
             """,
             {**fields, "cod_evento": cod_evento, "status": status},
         )
-        conn.commit()
+        if commit:
+            conn.commit()
         return status
 
     status = row["status"]
@@ -349,7 +389,8 @@ def upsert_evento(ev: dict) -> str:
         """,
         {**fields, "cod_evento": cod_evento, "status": status},
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return status
 
 
@@ -394,7 +435,7 @@ def purge_old_days(today: str | None = None) -> int:
     cur = conn.execute(
         """
         DELETE FROM queue_items
-        WHERE substr(dat_evento, 1, 10) < ?
+        WHERE (dat_evento IS NULL OR substr(dat_evento, 1, 10) < ?)
           AND status <> 'em_atendimento'
         """,
         (today,),
@@ -649,25 +690,20 @@ def checkout_by_attendant(attendant_id: int) -> dict | None:
 
 def checkout_evento(cod_evento: int, attendant_id: int) -> dict | None:
     conn = get_conn()
-    row = conn.execute(
-        """
-        SELECT * FROM queue_items
-        WHERE cod_evento = ? AND status = 'em_atendimento' AND claimed_by = ?
-        """,
-        (cod_evento, attendant_id),
-    ).fetchone()
-    if row is None:
-        return None
-
-    conn.execute(
+    cur = conn.execute(
         """
         UPDATE queue_items
         SET status='concluido', finished_at=datetime('now'),
             is_prioridade=0, prioridade_at=NULL, updated_at=datetime('now')
-        WHERE cod_evento = ?
+        WHERE cod_evento = ? AND status = 'em_atendimento' AND claimed_by = ?
         """,
-        (cod_evento,),
+        (cod_evento, attendant_id),
     )
+    if cur.rowcount != 1:
+        return None
+    row = conn.execute(
+        "SELECT * FROM queue_items WHERE cod_evento = ?", (cod_evento,)
+    ).fetchone()
     attendant = conn.execute(
         "SELECT nome FROM attendants WHERE id = ?", (attendant_id,)
     ).fetchone()
@@ -689,7 +725,7 @@ def checkout_evento(cod_evento: int, attendant_id: int) -> dict | None:
         ),
     )
     conn.commit()
-    return dict(row)
+    return dict(row) if row else None
 
 
 # ----------------------------------------------------------------------
@@ -705,11 +741,34 @@ def create_attendant(nome: str, pin_hash: str, pin_salt: str) -> dict:
     return {"id": cur.lastrowid, "nome": nome}
 
 
-def get_attendants(incluir_inativos: bool = False) -> list[dict]:
+def get_attendants(incluir_inativos: bool = False, month_start: str | None = None) -> list[dict]:
+    today = config.business_today()
+    month_start = month_start or f"{today[:7]}-01"
+    conn = get_conn()
+    clause = "" if incluir_inativos else "WHERE a.ativo = 1"
+    rows = conn.execute(
+        f"""
+        SELECT a.id, a.nome, a.ativo, a.created_at,
+               COUNT(t.id) AS total_atendimentos,
+               COALESCE(SUM(CASE WHEN t.finished_at >= ? THEN 1 ELSE 0 END), 0)
+                   AS atendimentos_mes
+        FROM attendants a
+        LEFT JOIN attendances t ON t.attendant_id = a.id
+        {clause}
+        GROUP BY a.id, a.nome, a.ativo, a.created_at
+        ORDER BY a.ativo DESC, a.nome
+        """,
+        (f"{month_start} 00:00:00",),
+    ).fetchall()
+    return rows_to_list(rows)
+
+
+def get_attendants_full(incluir_inativos: bool = False) -> list[dict]:
+    """Atendentes com hash/salt do PIN em uma única consulta (para autenticação)."""
     conn = get_conn()
     clause = "" if incluir_inativos else "WHERE ativo = 1"
     rows = conn.execute(
-        f"SELECT id, nome, ativo, created_at FROM attendants {clause} ORDER BY ativo DESC, nome"
+        f"SELECT id, nome, ativo, pin_hash, pin_salt FROM attendants {clause} ORDER BY ativo DESC, nome"
     ).fetchall()
     return rows_to_list(rows)
 
@@ -802,6 +861,18 @@ def clear_attendances() -> int:
 
 def clear_attendants() -> int:
     conn = get_conn()
+    refs = conn.execute(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM attendances) AS atendimentos,
+            (SELECT COUNT(*) FROM queue_items WHERE claimed_by IS NOT NULL) AS fila
+        """
+    ).fetchone()
+    if refs["atendimentos"] or refs["fila"]:
+        raise RuntimeError(
+            "Há atendimentos/fila vinculados a atendentes. "
+            "Use --all ou limpe a fila e a auditoria antes."
+        )
     cur = conn.execute("DELETE FROM attendants")
     conn.commit()
     return cur.rowcount
@@ -837,6 +908,41 @@ def get_audit(
         {clause}
         GROUP BY a.attendant_id, a.nom_attendant
         ORDER BY total DESC
+        """,
+        params,
+    ).fetchall()
+    return rows_to_list(rows)
+
+
+def get_audit_serie(
+    dat_inicio: str | None = None,
+    dat_fim: str | None = None,
+    cod_atendente: int | None = None,
+) -> list[dict]:
+    """Total de banhos finalizados por dia (para o gráfico do período)."""
+    conn = get_conn()
+    where, params = [], []
+    if dat_inicio:
+        where.append("a.finished_at >= ?")
+        params.append(f"{dat_inicio} 00:00:00")
+    if dat_fim:
+        where.append("a.finished_at <= ?")
+        params.append(f"{dat_fim} 23:59:59")
+    if cod_atendente is not None:
+        where.append("a.attendant_id = ?")
+        params.append(cod_atendente)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+    rows = conn.execute(
+        f"""
+        SELECT substr(a.finished_at, 1, 10) AS data,
+               COUNT(*) AS total,
+               ROUND(AVG((julianday(a.finished_at) - julianday(a.claimed_at)) * 24 * 60), 1)
+                   AS tempo_medio_min
+        FROM attendances a
+        {clause}
+        GROUP BY substr(a.finished_at, 1, 10)
+        ORDER BY data
         """,
         params,
     ).fetchall()

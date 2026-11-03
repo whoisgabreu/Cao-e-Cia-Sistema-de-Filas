@@ -3,6 +3,8 @@ import requests
 
 import config
 
+DEFAULT_TIMEOUT = (10, 30)  # (connect, read) em segundos
+
 
 class VetSoftError(Exception):
     def __init__(self, status_code: int, message: str, errors=None):
@@ -18,6 +20,7 @@ class VetSoftClient:
         self.tenant = tenant or config.TENANT
         self.email = email or config.EMAIL
         self.password = password or config.PASSWORD
+        self.timeout = DEFAULT_TIMEOUT
         self._access_token = None
         self._refresh_token = None
         self._session = requests.Session()
@@ -58,8 +61,17 @@ class VetSoftClient:
             headers.update(kwargs.pop("headers"))
         if _auth and self._access_token:
             headers["Authorization"] = f"Bearer {self._access_token}"
+        kwargs.setdefault("timeout", self.timeout)
 
-        resp = self._session.request(method, url, headers=headers, **kwargs)
+        def _send() -> requests.Response:
+            try:
+                return self._session.request(method, url, headers=headers, **kwargs)
+            except requests.Timeout as exc:
+                raise VetSoftError(504, "Tempo esgotado ao falar com o VetSoft.") from exc
+            except requests.RequestException as exc:
+                raise VetSoftError(502, f"Falha de conexão com o VetSoft: {exc}") from exc
+
+        resp = _send()
 
         if resp.status_code == 401 and _auth:
             try:
@@ -67,7 +79,7 @@ class VetSoftClient:
             except VetSoftError:
                 self.login()
             headers["Authorization"] = f"Bearer {self._access_token}"
-            resp = self._session.request(method, url, headers=headers, **kwargs)
+            resp = _send()
 
         if resp.status_code == 429:
             retry_after = float(resp.headers.get("Retry-After", 1))

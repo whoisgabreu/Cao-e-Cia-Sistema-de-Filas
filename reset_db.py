@@ -71,7 +71,11 @@ def main() -> None:
             n = db.clear_attendances()
             print(f"Auditoria limpa: {n} registro(s) removidos")
         elif target == "attendants":
-            n = db.clear_attendants()
+            try:
+                n = db.clear_attendants()
+            except RuntimeError as exc:
+                print(f"Não foi possível limpar atendentes: {exc}", file=sys.stderr)
+                continue
             print(f"Atendentes limpos: {n} registro(s) removidos")
 
     print("Estado final:", db.count_all())

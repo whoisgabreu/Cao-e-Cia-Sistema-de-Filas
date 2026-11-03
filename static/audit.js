@@ -2,6 +2,7 @@
 const { api, icon, escapeHtml, avatar, fmtLocalDateTime, fmtLocalTime, fmtElapsed, titleCase, plural, infoModal } = UI;
 
 let lastResumo = [];
+let detailOpen = false;
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -26,6 +27,108 @@ function params() {
 function fmtMin(v) {
   if (v == null) return "-";
   return fmtElapsed(Math.round(v));
+}
+
+/* ------------------------------------------------------------------
+   Banco local (hoje) + gráficos
+------------------------------------------------------------------ */
+const STATUS_META = [
+  { key: "aguardando", label: "Agendados", color: "var(--st-aguardando)" },
+  { key: "presente", label: "Esperando", color: "var(--st-presente)" },
+  { key: "em_atendimento", label: "Em banho", color: "var(--st-em_atendimento)" },
+  { key: "concluido", label: "Concluídos", color: "var(--st-concluido)" },
+  { key: "cancelado", label: "Cancelados", color: "var(--st-cancelado)" },
+];
+
+function renderDonut(q) {
+  const total = q.total || 0;
+  $("#donut-total").textContent = total;
+  const donut = $("#donut");
+  const legend = $("#donut-legend");
+  if (!total) {
+    donut.style.background = "var(--surface-2)";
+    legend.innerHTML = `<div class="muted">Sem pets hoje.</div>`;
+    return;
+  }
+  let acc = 0;
+  const stops = STATUS_META.map((s) => {
+    const pct = ((q[s.key] || 0) / total) * 100;
+    const from = acc;
+    acc += pct;
+    return `${s.color} ${from}% ${acc}%`;
+  });
+  donut.style.background = `conic-gradient(${stops.join(", ")})`;
+  legend.innerHTML = STATUS_META.map((s) => `
+    <div class="legend-row">
+      <span class="legend-dot" style="background:${s.color}"></span>
+      <span class="legend-label">${s.label}</span>
+      <b>${q[s.key] || 0}</b>
+    </div>`).join("");
+}
+
+function renderDbStatus(data) {
+  const q = data.queue || {};
+  $("#db-aguardando").textContent = q.aguardando || 0;
+  $("#db-presente").textContent = q.presente || 0;
+  $("#db-em_atendimento").textContent = q.em_atendimento || 0;
+  $("#db-concluido").textContent = q.concluido || 0;
+  $("#db-cancelado").textContent = q.cancelado || 0;
+  $("#db-total").textContent = q.total || 0;
+  renderDonut(q);
+}
+
+async function loadDbStatus() {
+  try {
+    renderDbStatus(await api("/api/debug/status"));
+  } catch (e) {
+    /* mantém os valores atuais */
+  }
+}
+
+function fillSerieDays(rows) {
+  const ini = $("#dat-inicio").value;
+  const fim = $("#dat-fim").value;
+  if (!ini || !fim) return rows;
+  const map = new Map(rows.map((r) => [r.data, r]));
+  const out = [];
+  const d = new Date(`${ini}T12:00:00`);
+  const end = new Date(`${fim}T12:00:00`);
+  let guard = 0;
+  while (d <= end && guard < 120) {
+    const key = isoDate(d);
+    out.push(map.get(key) || { data: key, total: 0 });
+    d.setDate(d.getDate() + 1);
+    guard++;
+  }
+  return out;
+}
+
+function dayLabel(iso) {
+  const parts = String(iso).split("-");
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}` : iso;
+}
+
+function renderSerie(rows) {
+  const el = $("#serie-chart");
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty">${UI.mascot("catSleep")}<div class="empty-title">Nenhum banho no período</div></div>`;
+    return;
+  }
+  const max = Math.max(...rows.map((r) => r.total), 1);
+  el.innerHTML = `<div class="bars">${rows.map((r) => `
+    <div class="bar-col" title="${dayLabel(r.data)}: ${r.total} ${r.total === 1 ? "banho" : "banhos"}">
+      <div class="bar-value">${r.total}</div>
+      <div class="bar-track"><div class="bar-fill" style="height:${Math.round((r.total / max) * 100)}%"></div></div>
+      <div class="bar-label">${dayLabel(r.data)}</div>
+    </div>`).join("")}</div>`;
+}
+
+async function loadSerie() {
+  try {
+    renderSerie(fillSerieDays(await api(`/api/audit/serie?${params()}`)));
+  } catch (e) {
+    $("#serie-chart").innerHTML = `<div class="empty"><div class="empty-title">Erro ao carregar</div><div class="empty-sub">${escapeHtml(e.message)}</div></div>`;
+  }
 }
 
 async function populateAttendants() {
@@ -187,24 +290,35 @@ function setActiveChip(id) {
   $$(".quick-chip").forEach((c) => c.classList.toggle("active", c.id === id));
 }
 
+function refreshAudit() {
+  $("#export").href = `/api/audit/export.xlsx?${params()}`;
+  loadDbStatus();
+  loadSerie();
+  populateAttendants().then(() => {
+    loadResumo();
+    if (detailOpen) loadDetalhe();
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
-  let detailOpen = false;
-
-  function refresh() {
-    $("#export").href = `/api/audit/export.xlsx?${params()}`;
-    populateAttendants().then(() => {
-      loadResumo();
-      if (detailOpen) loadDetalhe();
-    });
-  }
-
-  $("#today").onclick = () => { const t = new Date(); setRange(t, t); setActiveChip("today"); refresh(); };
-  $("#week").onclick = () => { const t = new Date(); const f = new Date(); f.setDate(t.getDate() - 6); setRange(f, t); setActiveChip("week"); refresh(); };
-  $("#month").onclick = () => { const t = new Date(); setRange(new Date(t.getFullYear(), t.getMonth(), 1), t); setActiveChip("month"); refresh(); };
-  $("#apply").onclick = () => { setActiveChip(""); refresh(); };
-  $("#atendente").onchange = refresh;
+  $("#today").onclick = () => { const t = new Date(); setRange(t, t); setActiveChip("today"); refreshAudit(); };
+  $("#week").onclick = () => { const t = new Date(); const f = new Date(); f.setDate(t.getDate() - 6); setRange(f, t); setActiveChip("week"); refreshAudit(); };
+  $("#month").onclick = () => { const t = new Date(); setRange(new Date(t.getFullYear(), t.getMonth(), 1), t); setActiveChip("month"); refreshAudit(); };
+  $("#apply").onclick = () => { setActiveChip(""); refreshAudit(); };
+  $("#atendente").onchange = refreshAudit;
   $("#dat-inicio").onchange = () => setActiveChip("");
   $("#dat-fim").onchange = () => setActiveChip("");
+
+  $("#refresh-db").onclick = async (e) => {
+    const btn = e.currentTarget;
+    btn.classList.add("loading");
+    try {
+      await loadDbStatus();
+      await loadSerie();
+    } finally {
+      btn.classList.remove("loading");
+    }
+  };
 
   $("#toggle-detail").onclick = () => {
     detailOpen = !detailOpen;
@@ -215,5 +329,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const today = new Date();
   setRange(today, today);
-  refresh();
+  refreshAudit();
 });
