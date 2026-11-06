@@ -24,6 +24,21 @@ ALL_STATUS = [
     STATUS_CANCELADO,
 ]
 
+# Situações do VetSoft que refletem no status local (híbrido: só avançam).
+# 3 (Cancelado) é tratado à parte; 11 (Entregue) e 14 (Não compareceu) são ignorados.
+VETSOFT_STATUS_MAP = {
+    1: STATUS_AGUARDANDO,   # Agendado
+    4: STATUS_AGUARDANDO,   # Aguardando
+    7: STATUS_PRESENTE,     # Em atendimento -> Chegaram
+    8: STATUS_CONCLUIDO,    # Finalizado
+}
+STATUS_RANK = {
+    STATUS_AGUARDANDO: 0,
+    STATUS_PRESENTE: 1,
+    STATUS_EM_ATENDIMENTO: 2,
+    STATUS_CONCLUIDO: 3,
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS attendants (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -320,6 +335,11 @@ def get_animals_missing_obs() -> set[int]:
 def upsert_evento(ev: dict, commit: bool = True) -> str:
     """Insere/atualiza um evento vindo do VetSoft. Retorna o status resultante.
 
+    O status do VetSoft é usado de forma híbrida: ele só **avança** o status
+    local (1/4 -> aguardando, 7 -> presente, 8 -> concluido) e cancela (3).
+    As ações locais continuam mandando e nunca são regredidas pelo sync.
+    11 (Entregue) e 14 (Não compareceu) são ignorados por enquanto.
+
     Com `commit=False`, deixa a transação aberta para o chamador agrupar escritas.
     """
     conn = get_conn()
@@ -345,21 +365,24 @@ def upsert_evento(ev: dict, commit: bool = True) -> str:
     )
 
     is_cancelled = vetsoft_situacao == 3
+    target = VETSOFT_STATUS_MAP.get(vetsoft_situacao)
 
     if row is None:
         if is_cancelled:
             return STATUS_CANCELADO
-        status = STATUS_AGUARDANDO
+        status = target or STATUS_AGUARDANDO
+        checked_in_sql = "datetime('now')" if status == STATUS_PRESENTE else "NULL"
+        finished_sql = "datetime('now')" if status == STATUS_CONCLUIDO else "NULL"
         conn.execute(
-            """
+            f"""
             INSERT INTO queue_items
                 (cod_evento, cod_cliente, nom_cliente, cod_animal, nom_animal,
                  services, dat_evento, dat_termino, tip_transporte, obs_estetica,
-                 vetsoft_situacao, status, updated_at)
+                 vetsoft_situacao, status, checked_in_at, finished_at, updated_at)
             VALUES
                 (:cod_evento, :cod_cliente, :nom_cliente, :cod_animal, :nom_animal,
                  :services, :dat_evento, :dat_termino, :tip_transporte, :obs_estetica,
-                 :vetsoft_situacao, :status, datetime('now'))
+                 :vetsoft_situacao, :status, {checked_in_sql}, {finished_sql}, datetime('now'))
             """,
             {**fields, "cod_evento": cod_evento, "status": status},
         )
@@ -370,13 +393,28 @@ def upsert_evento(ev: dict, commit: bool = True) -> str:
     status = row["status"]
     origem = row["cancel_origem"]
     cancel_sql = ""
-    if status == STATUS_CANCELADO and not is_cancelled and origem != "local":
-        # VetSoft reativou (ou o evento voltou para a agenda): volta para a fila
-        status = STATUS_AGUARDANDO
-        cancel_sql = ", cancelled_at=NULL, cancel_motivo=NULL, cancel_origem=NULL"
-    if is_cancelled and status not in (STATUS_CONCLUIDO, STATUS_CANCELADO):
+
+    if status == STATUS_CANCELADO:
+        # Reativação vinda do VetSoft (não sobrescreve cancelamento local).
+        if not is_cancelled and origem != "local" and target is not None:
+            status = target
+            cancel_sql = ", cancelled_at=NULL, cancel_motivo=NULL, cancel_origem=NULL"
+    elif is_cancelled and status != STATUS_CONCLUIDO:
         status = STATUS_CANCELADO
         cancel_sql = ", cancelled_at=datetime('now'), cancel_origem='vetsoft'"
+    elif not is_cancelled and target is not None:
+        # Só avança: nunca regride o que já foi feito localmente.
+        if STATUS_RANK.get(target, -1) > STATUS_RANK.get(status, -1):
+            status = target
+
+    side_sql = ""
+    if status == STATUS_PRESENTE:
+        side_sql = ", checked_in_at=COALESCE(checked_in_at, datetime('now'))"
+    elif status == STATUS_CONCLUIDO:
+        side_sql = (
+            ", finished_at=COALESCE(finished_at, datetime('now')), "
+            "is_prioridade=0, prioridade_at=NULL"
+        )
 
     conn.execute(
         f"""
@@ -384,7 +422,7 @@ def upsert_evento(ev: dict, commit: bool = True) -> str:
         SET cod_cliente=:cod_cliente, nom_cliente=:nom_cliente, cod_animal=:cod_animal,
             nom_animal=:nom_animal, services=:services, dat_evento=:dat_evento,
             dat_termino=:dat_termino, tip_transporte=:tip_transporte, obs_estetica=:obs_estetica,
-            vetsoft_situacao=:vetsoft_situacao, status=:status, updated_at=datetime('now'){cancel_sql}
+            vetsoft_situacao=:vetsoft_situacao, status=:status, updated_at=datetime('now'){cancel_sql}{side_sql}
         WHERE cod_evento = :cod_evento
         """,
         {**fields, "cod_evento": cod_evento, "status": status},
