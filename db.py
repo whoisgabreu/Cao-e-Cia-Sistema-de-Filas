@@ -25,12 +25,12 @@ ALL_STATUS = [
 ]
 
 # Situações do VetSoft que refletem no status local (híbrido: só avançam).
-# 3 (Cancelado) é tratado à parte; 11 (Entregue) e 14 (Não compareceu) são ignorados.
+# 3 (Cancelado) é tratado à parte; 8 (Finalizado), 11 (Entregue) e
+# 14 (Não compareceu) são ignorados — a conclusão é sempre local (atendente).
 VETSOFT_STATUS_MAP = {
     1: STATUS_AGUARDANDO,   # Agendado
     4: STATUS_AGUARDANDO,   # Aguardando
     7: STATUS_PRESENTE,     # Em atendimento -> Chegaram
-    8: STATUS_CONCLUIDO,    # Finalizado
 }
 STATUS_RANK = {
     STATUS_AGUARDANDO: 0,
@@ -336,9 +336,10 @@ def upsert_evento(ev: dict, commit: bool = True) -> str:
     """Insere/atualiza um evento vindo do VetSoft. Retorna o status resultante.
 
     O status do VetSoft é usado de forma híbrida: ele só **avança** o status
-    local (1/4 -> aguardando, 7 -> presente, 8 -> concluido) e cancela (3).
+    local (1/4 -> aguardando, 7 -> presente) e cancela (3).
     As ações locais continuam mandando e nunca são regredidas pelo sync.
-    11 (Entregue) e 14 (Não compareceu) são ignorados por enquanto.
+    A conclusão (concluido) é sempre local, pelo atendente.
+    8 (Finalizado), 11 (Entregue) e 14 (Não compareceu) são ignorados.
 
     Com `commit=False`, deixa a transação aberta para o chamador agrupar escritas.
     """

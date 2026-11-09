@@ -40,15 +40,21 @@ def test_status_7_nao_regride_em_atendimento(add_queue_item):
     assert _row(1)["status"] == "em_atendimento"
 
 
-def test_status_8_conclui_sem_auditoria(add_queue_item):
+def test_status_8_nao_move_para_concluido(add_queue_item):
     add_queue_item(1, status="presente")
     assert db.set_prioridade(1, True) == "ok"
-    assert db.upsert_evento(_ev(1, 8)) == "concluido"
+    assert db.upsert_evento(_ev(1, 8)) == "presente"
     row = _row(1)
-    assert row["status"] == "concluido"
-    assert row["finished_at"] is not None
-    assert row["is_prioridade"] == 0
+    assert row["status"] == "presente"
+    assert row["finished_at"] is None
+    assert row["is_prioridade"] == 1
     assert _count_attendances() == 0
+
+
+def test_status_8_nao_interrompe_em_atendimento(add_queue_item):
+    add_queue_item(1, status="em_atendimento")
+    assert db.upsert_evento(_ev(1, 8)) == "em_atendimento"
+    assert _row(1)["status"] == "em_atendimento"
 
 
 def test_status_1_e_4_nao_regridem(add_queue_item):
@@ -102,6 +108,7 @@ def test_novo_evento_com_status_7_e_8():
     assert db.upsert_evento(_ev(1, 7)) == "presente"
     assert _row(1)["status"] == "presente"
 
-    assert db.upsert_evento(_ev(2, 8)) == "concluido"
-    assert _row(2)["status"] == "concluido"
+    # Status 8 não conclui: evento novo cai no fallback (aguardando).
+    assert db.upsert_evento(_ev(2, 8)) == "aguardando"
+    assert _row(2)["status"] == "aguardando"
     assert _count_attendances() == 0
